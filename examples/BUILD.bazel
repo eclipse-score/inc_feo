@@ -1,0 +1,13 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+load("@rules_rust//tools/rust_analyzer:deps.bzl", "rust_analyzer_dependencies")
+
+rust_binary(
+    name = "hello_feo",
+    srcs = [
+      "hello/hello.rs", 
+
+    ],
+    crate_root = "hello/hello.rs",
+)
+
+

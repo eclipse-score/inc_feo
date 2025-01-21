@@ -1,0 +1,37 @@
+module(name = "score-feo", version = "0.1")
+
+bazel_dep(
+    name = "rules_rust",
+    version = "0.56.0",
+)
+
+RUST_EDITION = "2021"
+
+RUST_VERSION = "1.81.0"
+
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(
+    edition = RUST_EDITION,
+    sha256s = {
+        "rustc-1.81.0-x86_64-unknown-linux-gnu.tar.xz": "988a4e4cdecebe4f4a0c52ec4ade5a5bfc58d6958969f5b1e8aac033bda2613e",
+        "clippy-1.81.0-x86_64-unknown-linux-gnu.tar.xz": "c545ea0f2901eb1cd652721350147df11744afbb97eb117d89b1f313e9920ffb",
+        "cargo-1.81.0-x86_64-unknown-linux-gnu.tar.xz": "c50ee4b1ae8695461930e36d5465dddb7c7a0e0f0aa6cbd60de120b17c38b841",
+        "llvm-tools-1.81.0-x86_64-unknown-linux-gnu.tar.xz": "d15a4a0bd4202d2252d826c7bdaee19fdba3c766725f2ccab67a4981c7d5a62f",
+        "rust-std-1.81.0-x86_64-unknown-linux-gnu.tar.xz": "6ddf80f254e8eea9956308ba89fd68e1ac7885853df9239b07bbc9f047b7562f",
+    },
+    versions = [RUST_VERSION],
+)
+use_repo(rust, "rust_toolchains")
+
+crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
+crate.from_cargo(
+    name = "crates",
+    cargo_lockfile = "//:Cargo.lock",
+    manifests = ["//:Cargo.toml"],
+)
+use_repo(crate, "crates")
+
+# To update, run `bazel run @rules_rust//tools/rust_analyzer:gen_rust_project`.
+rust_analyzer = use_extension("@rules_rust//tools/rust_analyzer:deps.bzl", "rust")
+rust_analyzer.rust_analyzer_dependencies()
+
