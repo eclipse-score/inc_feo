@@ -17,6 +17,4 @@ perfetto-model = { workspace = true }
 postcard = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
-serde_json = { workspace = true }
-tokio = { workspace = true }
-tokio-seqpacket = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }

@@ -2,14 +2,21 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use core::fmt::Debug;
 use serde::{Deserialize, Serialize};
 use std::process;
 use std::time::{self, UNIX_EPOCH};
-use tracing_serde_structured::{SerializeAttributes, SerializeEvent, SerializeRecord};
+use tracing::field::Field;
+use tracing_subscriber::field::Visit;
 
-pub type Id = u64;
+pub const MAX_INFO_SIZE: usize = 30;
 
-pub const MAX_PACKET_SIZE: usize = 16 * 1024;
+/// The maximal allowed size of serialized packet data
+///
+/// Packets exceeding this size will be dropped with an error message
+pub const MAX_PACKET_SIZE: usize = 148;
+
+type Id = u64;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Process {
@@ -27,21 +34,21 @@ impl Process {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum TraceData<'a> {
+pub enum TraceData {
     NewSpan {
         id: Id,
-        #[serde(borrow)]
-        attributes: SerializeAttributes<'a>,
+        name: [u8; MAX_INFO_SIZE],
+        name_len: usize,
+        info: EventInfo,
     },
     Record {
         span: Id,
-        #[serde(borrow)]
-        values: SerializeRecord<'a>,
     },
     Event {
         parent_span: Option<Id>,
-        #[serde(borrow)]
-        event: SerializeEvent<'a>,
+        name: [u8; MAX_INFO_SIZE],
+        name_len: usize,
+        info: EventInfo,
     },
     Enter {
         span: Id,
@@ -51,21 +58,34 @@ pub enum TraceData<'a> {
     },
 }
 
-// Safety: For now the whole application runs single threadded so this is safe to
-// manually implement Send here.
-unsafe impl Send for TraceData<'_> {}
+/// Additional info that can be attached to an event
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct EventInfo {
+    pub name: [u8; MAX_INFO_SIZE],
+    pub name_len: Option<usize>,
+    pub value: [u8; MAX_INFO_SIZE],
+    pub value_len: usize,
+}
+
+impl Visit for EventInfo {
+    fn record_str(&mut self, field: &Field, value: &str) {
+        self.name_len = Some(truncate(field.name(), &mut self.name));
+        self.value_len = truncate(value, &mut self.value);
+    }
+
+    fn record_debug(&mut self, _: &Field, _: &dyn Debug) {}
+}
 
 /// A trace packet
 #[derive(Debug, Serialize, Deserialize)]
-pub struct TracePacket<'a> {
+pub struct TracePacket {
     pub timestamp: u64, // nanoseconds
-    pub process: Process,
-    #[serde(borrow)]
-    pub data: TraceData<'a>,
+    pub process: Option<Process>,
+    pub data: TraceData,
 }
 
-impl<'a> TracePacket<'a> {
-    pub fn new(timestamp: u64, process: Process, data: TraceData<'a>) -> TracePacket<'a> {
+impl TracePacket {
+    pub fn new(timestamp: u64, process: Option<Process>, data: TraceData) -> TracePacket {
         TracePacket {
             timestamp,
             process,
@@ -73,13 +93,31 @@ impl<'a> TracePacket<'a> {
         }
     }
 
-    pub fn now_with_data(data: TraceData<'a>) -> TracePacket<'a> {
+    pub fn now_with_data(data: TraceData) -> TracePacket {
         TracePacket {
             timestamp: timestamp(),
-            process: Process::this(),
+            process: Some(Process::this()),
             data,
         }
     }
+
+    /// Create trace packet with data except process information, thus saving time of syscall
+    pub fn now_without_process(data: TraceData) -> TracePacket {
+        TracePacket {
+            timestamp: timestamp(),
+            process: None,
+            data,
+        }
+    }
+}
+
+/// Truncate the given string slice into the given output byte buffer
+///
+/// Returns the number of valid bytes in the buffer
+pub fn truncate(slice: &str, buffer: &mut [u8]) -> usize {
+    let len = trunc_len(slice, buffer.len());
+    buffer[0..len].clone_from_slice(&slice.as_bytes()[0..len]);
+    len
 }
 
 /// Now epoch in nanoseconds
@@ -90,12 +128,27 @@ fn timestamp() -> u64 {
         .as_nanos() as u64
 }
 
+/// Return the byte length of the given utf-8 encoded string slice
+/// truncated to fit into the specified maximal length in bytes
+fn trunc_len(slice: &str, max_byte_len: usize) -> usize {
+    let mut len: usize = 0;
+    for (pos, _) in slice.char_indices() {
+        if pos >= max_byte_len {
+            break;
+        }
+        if pos + 1 > len && pos < max_byte_len {
+            len = pos + 1;
+        }
+    }
+    len
+}
+
 mod thread {
     /// The type of a thread id
-    pub type ThreadId = u32;
+    pub(crate) type ThreadId = u32;
 
     /// Get the current thread id
-    pub fn id() -> ThreadId {
+    pub(crate) fn id() -> ThreadId {
         // Safety: gettid(2) says this never fails
         unsafe { libc::gettid() as u32 }
     }

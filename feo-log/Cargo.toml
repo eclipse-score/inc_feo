@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-log = { workspace = true }
+# The `std` feature is currently required for the `set_boxed_logger` call.
+log = { workspace = true, features = ["std"] }
 
 [dev-dependencies]
 feo-logger = { workspace = true }

@@ -1,10 +1,11 @@
 [workspace]
 members = [
-    "examples/rust/feo-mini-adas",
-    "examples/rust/greeter",
-    "examples/rust/greetings",
-    "examples/rust/mini-adas-recording",
+    "examples/rust/cycle-benchmark",
+    "examples/rust/mini-adas",
     "feo",
+    "feo-com",
+    "feo-cpp-build",
+    "feo-cpp-macros",
     "feo-log",
     "feo-logger",
     "feo-time",
@@ -24,19 +25,22 @@ cc = "1.2.7"
 console = "0.15.10"
 env_logger = "0.11.5"
 feo = { path = "feo", default-features = false }
+feo-com = { path = "feo-com" }
+feo-cpp-build = { path = "feo-cpp-build" }
+feo-cpp-macros = { path = "feo-cpp-macros" }
 feo-log = { path = "feo-log" }
 feo-logger = { path = "feo-logger" }
 feo-time = { path = "feo-time" }
 feo-tracing = { path = "feo-tracing" }
 futures = "0.3.31"
-greetings = { path = "examples/rust/greetings" }
 human_bytes = "0.4.3"
 iceoryx2 = "0.5.0"
 indicatif = "0.17.9"
 indicatif-log-bridge = "0.2.3"
 libc = "0.2"
-log = { version = "0.4.22", features = ["std"] }
+log = { version = "0.4.22" }
 mio = { version = "1.0.2", features = ["net", "os-poll"] }
+nix = { version = "0.29.0", features = ["fs", "mman"] }
 perfetto-model = { path = "perfetto-model" }
 postcard = "1.1.1"
 prost = "0.13.4"
@@ -59,7 +63,6 @@ tokio-util = { version = "0.7.13", features = ["codec", "net"] }
 tracing = { version = "0.1.41", features = [
     "attributes",
 ], default-features = false }
-tracing-serde-structured = "0.4.0"
 tracing-subscriber = { version = "0.3.19", default-features = false }
 
 [profile.profiling]

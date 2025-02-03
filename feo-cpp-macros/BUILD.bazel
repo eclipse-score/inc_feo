@@ -1,0 +1,12 @@
+load("@cargo//:defs.bzl", "all_crate_deps")
+load("@rules_rust//rust:defs.bzl", "rust_proc_macro")
+
+rust_proc_macro(
+    name = "feo_cpp_macros_rust",
+    srcs = [
+        "src/lib.rs",
+    ],
+    crate_features = [],
+    crate_name = "feo_cpp_macros",
+    visibility = ["//visibility:public"],
+)

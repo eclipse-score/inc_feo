@@ -4,10 +4,11 @@
 
 use crate::record::Record;
 use crate::MAX_RECORD_SIZE;
+use core::mem;
 use libc::{sockaddr_un, AF_UNIX};
+use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::sync::Mutex;
-use std::{io, mem};
 
 pub const UNIX_PACKET_PATH: &str = "/tmp/logd.sock";
 

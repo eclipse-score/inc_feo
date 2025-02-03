@@ -6,12 +6,12 @@
 
 use anyhow::{bail, Context, Error};
 use argh::FromArgs;
+use core::future::pending;
 use feo_log::{debug, info, LevelFilter};
 use feo_tracer::io::listen;
 use feo_tracer::perfetto;
 use futures::FutureExt;
 use indicatif_log_bridge::LogWrapper;
-use std::future::pending;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 use tokio::sync::mpsc;
@@ -20,10 +20,18 @@ use tokio::{runtime, select, signal, task, time};
 /// Progress bar wrapper
 mod progress;
 
-/// Path to the seqpacket socket
+/// Path to the Unix socket
 const UNIX_PACKET_PATH: &str = "/tmp/feo-tracer.sock";
-/// Size of the message channel
-const MESSAGE_CHANNEL_SIZE: usize = 100;
+
+/// Size of the message channel (number of messages) for transmitting decoded trace
+/// packets to the file writer
+const MESSAGE_CHANNEL_SIZE: usize = 256;
+
+/// Size of the file writing buffer (bytes)
+const FILE_BUFFER_SIZE: usize = 1024 * 1024;
+
+/// The number of Tokio worker threads to spawn
+const NUM_THREADS: usize = 4;
 
 #[derive(FromArgs)]
 #[argh(help_triggers("-h", "--help", "help"))]
@@ -56,7 +64,7 @@ fn main() -> Result<(), Error> {
     // Initialize progress bar
     let mut progress = progress::Progress::new()?;
 
-    // Wrap the loger in the progress bar to avoid interleaving
+    // Wrap the logger in the progress bar to avoid interleaving
     LogWrapper::new(progress.bar(), logger).try_init()?;
     feo_log::set_max_level(log_level.unwrap_or(LevelFilter::Warn));
 
@@ -66,9 +74,9 @@ fn main() -> Result<(), Error> {
 
     let (message_sender, mut message_receiver) = mpsc::channel(MESSAGE_CHANNEL_SIZE);
 
-    // Listen for incoming connections on a seqpacket socket
+    // Listen for incoming connections on a socket
     // Forward the messages to the message channel.
-    let fan_in_seqpacket = {
+    let fan_in_socket = {
         let message_sender = message_sender.clone();
         async move {
             let path = Path::new(UNIX_PACKET_PATH);
@@ -85,7 +93,8 @@ fn main() -> Result<(), Error> {
     // messages from all connected processes.
     let process_messages = {
         // Open the output file and create a progress bar for the writes
-        let writer = io::BufWriter::new(
+        let writer = io::BufWriter::with_capacity(
+            FILE_BUFFER_SIZE,
             fs::File::create(&out)
                 .with_context(|| format!("failed to create {}", out.display()))?,
         );
@@ -127,7 +136,7 @@ fn main() -> Result<(), Error> {
 
     // Wait for all tasks to finish or error
     let run = async {
-        tasks.spawn(fan_in_seqpacket);
+        tasks.spawn(fan_in_socket);
         tasks.spawn(process_messages);
 
         match tasks.join_next().await.expect("no tasks to join") {
@@ -137,7 +146,8 @@ fn main() -> Result<(), Error> {
     };
 
     // Fire up runtime and wait
-    runtime::Builder::new_current_thread()
+    runtime::Builder::new_multi_thread()
+        .worker_threads(NUM_THREADS)
         .enable_io()
         .enable_time()
         .build()?

@@ -2,17 +2,19 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use core::hash::{BuildHasher, Hasher};
+use core::ops::Range;
+use core::time::Duration;
 use feo_tracing::{instrument, span, Level};
 use std::collections::hash_map::RandomState;
-use std::hash::{BuildHasher, Hasher};
-use std::ops::Range;
 use std::thread;
-use std::time::Duration;
-use tracing::event;
 use tracing::level_filters::LevelFilter;
+use tracing::{event, info};
 
 fn main() {
-    feo_tracing::init(LevelFilter::DEBUG);
+    feo_tracing::init(LevelFilter::TRACE);
+
+    iteration(10);
 
     // Spawn some threads that will generate traces
     (0..4).for_each(|n| {
@@ -28,7 +30,7 @@ fn main() {
 #[instrument(name = "iteration")]
 fn iteration(n: u32) {
     // Create an event
-    event!(Level::DEBUG, foo = 5, bar = "hello");
+    event!(Level::DEBUG, thread = format!("{}", n));
 
     // Create a span
     let now = format!(
@@ -37,12 +39,14 @@ fn iteration(n: u32) {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
     );
-    let span = span!(Level::INFO, "hello tracing", thread = n, now).entered();
+    let span = span!(Level::INFO, "hello tracing", now = now).entered();
 
     sleep_rand_millis(100..200);
 
     // Event that is part of the span
-    event!(parent: &span, Level::DEBUG, "in span");
+    event!(parent: &span, Level::DEBUG, now=now);
+
+    info!(name: "Something happened", data="here");
 
     sleep_rand_millis(100..200);
 
@@ -53,7 +57,7 @@ fn iteration(n: u32) {
 
     // Create a child span
     {
-        let _inner = span!(Level::INFO, "inner").entered();
+        let _inner = span!(Level::INFO, "inner", info = "inner span").entered();
         sleep_rand_millis(200..300);
     }
 

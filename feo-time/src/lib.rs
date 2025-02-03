@@ -36,16 +36,27 @@
 //! println!("Running slow_function() took {} seconds.", elapsed_time.as_secs());
 //! ```
 
+#![no_std]
+#![deny(
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc,
+    clippy::alloc_instead_of_core
+)]
+
+extern crate alloc;
+extern crate std;
+
 mod ffi;
 #[cfg(test)]
 mod tests;
 
-use std::error::Error;
-use std::ops::{Add, AddAssign, Sub, SubAssign};
-use std::sync::atomic::{AtomicI32, Ordering};
+use core::error::Error;
+use core::fmt;
+use core::ops::{Add, AddAssign, Sub, SubAssign};
+use core::sync::atomic::{AtomicI32, Ordering};
+pub use core::time::Duration;
 use std::sync::{LazyLock, Once};
-pub use std::time::Duration;
-use std::{fmt, time};
+use std::time;
 
 /// An anchor in time which can be used to create new `SystemTime` instances or
 /// learn about where in time a `SystemTime` lies.

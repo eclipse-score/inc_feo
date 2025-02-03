@@ -22,22 +22,25 @@
 //! per agent.
 //! Each activity is statically mapped to one agent and one worker through [feo::configuration](crate::configuration).
 
+#![no_std]
+#![deny(
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc,
+    clippy::alloc_instead_of_core
+)]
+
+extern crate alloc;
+extern crate std;
+
 pub mod activity;
 pub mod agent;
-pub mod com;
-pub mod configuration;
+pub mod cpp;
 pub mod error;
+pub mod ids;
 #[cfg(feature = "recording")]
 pub mod recording;
+pub mod scheduler;
 pub mod signalling;
 mod timestamp;
-pub mod worker_pool;
-
-/// Re-export the public API
-pub mod prelude {
-    pub use crate::activity::{Activity, ActivityBuilder, ActivityId};
-    pub use crate::agent::{primary, secondary};
-    pub use crate::signalling::{self, AgentId};
-    pub use crate::worker_pool::{self, WorkerId};
-    pub use crate::{com, configuration};
-}
+pub mod topicspec;
+pub mod worker;

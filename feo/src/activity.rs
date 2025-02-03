@@ -3,41 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Activity and related structs and traits
-
-#[cfg(feature = "recording")]
-use postcard::experimental::max_size::MaxSize;
-#[cfg(feature = "recording")]
-use serde::{Deserialize, Serialize};
-use std::fmt::Display;
-
-/// Identifies an Activity / Task
-#[cfg_attr(feature = "recording", derive(Serialize, Deserialize, MaxSize))]
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ActivityId(usize);
-
-impl From<usize> for ActivityId {
-    fn from(value: usize) -> Self {
-        Self(value)
-    }
-}
-
-impl From<&ActivityId> for usize {
-    fn from(value: &ActivityId) -> Self {
-        value.0
-    }
-}
-
-impl From<ActivityId> for usize {
-    fn from(value: ActivityId) -> Self {
-        value.0
-    }
-}
-
-impl Display for ActivityId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "A{}", self.0)
-    }
-}
+use crate::ids::ActivityId;
+use alloc::boxed::Box;
 
 /// Activity trait, to be implemented by any activity intended to run in a WorkerPool
 pub trait Activity {

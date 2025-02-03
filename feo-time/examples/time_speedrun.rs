@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use core::time::Duration;
 use feo_log::{debug, info, LevelFilter};
 use feo_time::Scaled;
 use std::thread;
-use std::time::Duration;
 
 fn main() {
     feo_logger::init(LevelFilter::Debug, true, false);
@@ -20,7 +20,7 @@ fn main() {
 
     for _ in 0..5 {
         debug!("Sleeping for 1 \"real\" second...");
-        thread::sleep(std::time::Duration::from_secs(1));
+        thread::sleep(core::time::Duration::from_secs(1));
         info!(
             "feo time since start: systemtime: {:?}, instant: {:?}",
             start_systemtime_feo.elapsed().expect("time error"),
@@ -35,7 +35,7 @@ fn main() {
 
     // Scaling duration for thread::sleep. Use `scaled()` method to get the scaled duration
     // that matches the current time speed factor and feed it into `std::thread::sleep`.
-    const SLEEP_DURATION: Duration = std::time::Duration::from_secs(1);
+    const SLEEP_DURATION: Duration = core::time::Duration::from_secs(1);
     let sleep_duration_scaled = SLEEP_DURATION.scaled();
 
     for _ in 0..5 {

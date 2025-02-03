@@ -2,16 +2,20 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+//! Timestamping module
+
 use feo_time::Scaled;
 #[cfg(feature = "recording")]
 use postcard::experimental::max_size::MaxSize;
 #[cfg(feature = "recording")]
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
-use std::{self};
 
 /// Maximal acceptable tolerance between when determining startup time info
-const MAX_DELAY: std::time::Duration = std::time::Duration::from_nanos(100);
+///
+/// For now, this threshold has been arbitrarily chosen. The achievable time
+/// depends on the underlying platform.
+const MAX_DELAY: core::time::Duration = core::time::Duration::from_micros(1);
 
 /// Maximal number of tries when determining startup time info
 const MAX_TRIES: i32 = 10;
@@ -27,22 +31,25 @@ static STARTUP_TIME: OnceLock<TimeInfo> = OnceLock::new();
 
 /// Initialize the instant of system startup
 ///
-/// # Panics:
-///
-/// Panics if the method has been called before
+/// Will be ignored if another thread already initialized the time.
 pub fn initialize() {
+    // Return early if another thread already set the time
+    if STARTUP_TIME.get().is_some() {
+        return;
+    }
     let startup_time_info = time_info_now();
-    STARTUP_TIME
-        .set(startup_time_info)
-        .expect("failed to initialize startup time");
+    STARTUP_TIME.set(startup_time_info).ok();
 }
 
 /// Initialize the instant of system startup from a given
 ///
-/// # Panics:
-///
-/// Panics if the method has been called before
+/// Will be ignored if another thread already initialized the time.
 pub fn initialize_from(sync_info: SyncInfo) {
+    // Return early if another thread already set the time
+    if STARTUP_TIME.get().is_some() {
+        return;
+    }
+
     // Get current system time and corresponding instant
     let time_info_now = time_info_now();
 
@@ -66,14 +73,13 @@ pub fn initialize_from(sync_info: SyncInfo) {
         .checked_sub(elapsed_since_startup)
         .expect("failed to synchronize startup time");
 
-    // Set the startup time info
+    // Set the startup time info.
+    // If another thread already did so, ignore it.
     let startup_time_info = TimeInfo {
         instant: startup_instant,
         systime: startup_time,
     };
-    STARTUP_TIME
-        .set(startup_time_info)
-        .expect("failed to initialize startup time");
+    STARTUP_TIME.set(startup_time_info).ok();
 }
 
 /// Return the startup instant
@@ -128,7 +134,7 @@ impl MaxSize for Timestamp {
 #[cfg_attr(feature = "recording", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct SyncInfo {
-    since_epoch: std::time::Duration,
+    since_epoch: core::time::Duration,
 }
 
 /// Return current system time and instant as a TimeInfo object  
@@ -165,6 +171,12 @@ impl From<SyncInfo> for u128 {
     }
 }
 
+impl From<&SyncInfo> for u128 {
+    fn from(info: &SyncInfo) -> u128 {
+        info.since_epoch.as_nanos()
+    }
+}
+
 impl From<SyncInfo> for u64 {
     fn from(info: SyncInfo) -> u64 {
         let nanos = info.since_epoch.as_nanos();
@@ -177,7 +189,7 @@ impl From<u128> for SyncInfo {
     fn from(nanos: u128) -> SyncInfo {
         assert!(nanos <= u64::MAX.into(), "input value too large");
         SyncInfo {
-            since_epoch: std::time::Duration::from_nanos(nanos as u64),
+            since_epoch: core::time::Duration::from_nanos(nanos as u64),
         }
     }
 }
@@ -185,13 +197,19 @@ impl From<u128> for SyncInfo {
 impl From<u64> for SyncInfo {
     fn from(nanos: u64) -> SyncInfo {
         SyncInfo {
-            since_epoch: std::time::Duration::from_nanos(nanos),
+            since_epoch: core::time::Duration::from_nanos(nanos),
         }
     }
 }
 
 impl From<Timestamp> for u128 {
     fn from(tstamp: Timestamp) -> u128 {
+        tstamp.0.as_nanos()
+    }
+}
+
+impl From<&Timestamp> for u128 {
+    fn from(tstamp: &Timestamp) -> Self {
         tstamp.0.as_nanos()
     }
 }

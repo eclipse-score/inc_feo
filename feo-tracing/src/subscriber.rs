@@ -2,33 +2,62 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::protocol::{TraceData, TracePacket, MAX_PACKET_SIZE};
-use feo_log::{trace, warn};
-use libc::{sockaddr_un, AF_UNIX};
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-use std::sync::{atomic, Mutex};
-use std::{io, mem};
+use crate::protocol::{
+    truncate, EventInfo, TraceData, TracePacket, MAX_INFO_SIZE, MAX_PACKET_SIZE,
+};
+use core::sync::atomic;
+use core::sync::atomic::AtomicBool;
+use core::time::Duration;
+use feo_log::error;
+use std::io::Write;
+use std::os::unix::net::UnixStream;
+use std::sync::{mpsc, Arc};
+use std::thread::JoinHandle;
+use std::{io, thread};
 use tracing::level_filters::LevelFilter;
 use tracing::span;
 use tracing::subscriber::set_global_default;
-use tracing_serde_structured::AsSerde;
 
+/// The unix socket path used by the tracing daemon to receive trace packets
 pub const UNIX_PACKET_PATH: &str = "/tmp/feo-tracer.sock";
+
+/// Size of the channel (number of packets) for transmitting trace packets to the serializing thread
+const MPSC_CHANNEL_BOUND: usize = 512;
+
+/// Size of the buffer (bytes) for transmitting serialized packets to the trace daemon
+const BUFWRITER_SIZE: usize = 512 * MAX_PACKET_SIZE;
+
+/// Size of the maximal time interval after which to flush packets to the daemon
+const FLUSH_INTERVAL: Duration = Duration::from_millis(500);
 
 /// Initialize the tracing subscriber with the given level
 pub fn init(level: LevelFilter) {
+    let (sender, receiver) = mpsc::sync_channel::<TracePacket>(MPSC_CHANNEL_BOUND);
+    let enabled = Arc::new(AtomicBool::new(true));
+
+    // Spawn thread for serializing trace packets and sending to the trace daemon
+    let _thread = {
+        let enabled = Arc::clone(&enabled);
+        thread::spawn(|| Subscriber::thread_main(receiver, enabled))
+    };
+
     let subscriber = Subscriber {
         max_level: level,
-        tracer: Mutex::new(None),
+        enabled,
+        _thread,
+        sender,
     };
     set_global_default(subscriber).expect("setting tracing default failed");
 }
 
-/// A subscriber that sends trace data to the feo-tracer via seqpacket and postcard serialized data.
+/// A subscriber sending trace data to the feo-tracer via unix socket and postcard serialized data.
+///
 /// See the `TraceData` and `TracePacket` types for the data format.
 struct Subscriber {
     max_level: LevelFilter,
-    tracer: Mutex<Option<OwnedFd>>,
+    enabled: Arc<AtomicBool>,
+    _thread: JoinHandle<()>,
+    sender: mpsc::SyncSender<TracePacket>,
 }
 
 impl Subscriber {
@@ -43,35 +72,60 @@ impl Subscriber {
         span::Id::from_u64(id)
     }
 
-    // Send a value to the tracer
-    fn send(&self, packet: TracePacket<'_>) {
-        let mut guard = self.tracer.lock().unwrap();
+    fn thread_main(receiver: mpsc::Receiver<TracePacket>, enabled: Arc<AtomicBool>) {
+        let connection = match UnixStream::connect(UNIX_PACKET_PATH) {
+            Ok(connection) => connection,
+            Err(e) => {
+                error!("Failed to connect to feo-tracer: {:?}, aborting", e);
+                // disable further tracing (TODO: add a time period of retrying)
+                enabled.store(false, atomic::Ordering::Relaxed);
+                return;
+            }
+        };
 
-        if guard.is_none() {
-            // Connect
-            match connect() {
-                Ok(connection) => *guard = Some(connection),
+        // Create buffer for serialization
+        let mut buffer = [0u8; MAX_PACKET_SIZE];
+
+        // Create BufferedWriter for socket
+        let mut socket_writer = io::BufWriter::with_capacity(BUFWRITER_SIZE, connection);
+        let mut last_flush = std::time::Instant::now();
+
+        loop {
+            let packet = receiver
+                .recv()
+                .expect("trace subscriber failed to receive, aborting");
+
+            let serialized = match postcard::to_slice_cobs(&packet, &mut buffer[..]) {
+                Ok(serialized) => serialized,
                 Err(e) => {
-                    trace!("Failed to connect to feo-tracer: {:?}. Discarding value", e);
-                    return;
+                    error!("Failed to serialize trace packet: {e:?}");
+                    continue;
                 }
             };
+
+            let ret = socket_writer.write_all(serialized);
+            if let Err(error) = ret {
+                error!("Failed to send to feo-tracer: {error:?}, aborting");
+                enabled.store(false, atomic::Ordering::Relaxed);
+                return;
+            }
+
+            // Flush, if pre-defined time interval elapsed or insufficient spare capacity
+            if last_flush.elapsed() > FLUSH_INTERVAL {
+                socket_writer.flush().expect("failed to flush");
+                last_flush = std::time::Instant::now();
+            }
         }
+    }
 
-        let socket = guard.as_mut().unwrap();
-
-        let message = postcard::to_vec::<_, MAX_PACKET_SIZE>(&packet).expect("failed to serialize"); // TODO throw?
-
-        // Note: Seqpacket writes write all data or fail. No need to loop around and check for partial writes.
-        let fd = socket.as_raw_fd();
-        let buf = message.as_ptr() as *const libc::c_void;
-        let len = message.len();
-        // Safety: buf is a valid pointer to a buffer of the correct length
-        let ret = unsafe { libc::send(fd, buf, len, 0) };
-        if ret < 0 {
-            let error = io::Error::last_os_error();
-            warn!("Failed to send to feo-tracer: {error:?}");
-            guard.take();
+    // Send a value to the tracer
+    fn send(&self, packet: TracePacket) {
+        if !self.enabled.load(atomic::Ordering::Relaxed) {
+            return;
+        }
+        if let Err(e) = self.sender.send(packet) {
+            error!("Failed to connect to feo-tracer: {:?}, aborting", e);
+            self.enabled.store(false, atomic::Ordering::Relaxed);
         }
     }
 }
@@ -79,7 +133,7 @@ impl Subscriber {
 impl tracing::Subscriber for Subscriber {
     fn enabled(&self, metadata: &tracing::Metadata<'_>) -> bool {
         // A span or event is enabled if it is at or below the configured
-        // maximum level.
+        // maximum level
         metadata.level() <= &self.max_level
     }
 
@@ -89,28 +143,41 @@ impl tracing::Subscriber for Subscriber {
 
     fn new_span(&self, span: &span::Attributes) -> span::Id {
         let id = self.new_span_id();
+        let mut name = [0u8; MAX_INFO_SIZE];
+        let name_len = truncate(span.metadata().name(), &mut name);
+        let mut info = EventInfo::default();
+        span.record(&mut info);
         let trace_data = TraceData::NewSpan {
             id: id.into_u64(),
-            attributes: span.as_serde(),
+            name,
+            name_len,
+            info,
         };
         let trace_packet = TracePacket::now_with_data(trace_data);
         self.send(trace_packet);
         id
     }
 
-    fn record(&self, span: &span::Id, values: &span::Record) {
+    fn record(&self, span: &span::Id, _: &span::Record) {
         let trace_data = TraceData::Record {
             span: span.into_u64(),
-            values: values.as_serde(),
         };
         let trace_packet = TracePacket::now_with_data(trace_data);
         self.send(trace_packet);
     }
 
+    fn record_follows_from(&self, _span: &span::Id, _follows: &span::Id) {}
+
     fn event(&self, event: &tracing::Event) {
+        let mut name = [0u8; MAX_INFO_SIZE];
+        let name_len = truncate(event.metadata().name(), &mut name);
+        let mut info = EventInfo::default();
+        event.record(&mut info);
         let trace_data = TraceData::Event {
             parent_span: self.current_span().id().map(|id| id.into_u64()),
-            event: event.as_serde(),
+            name,
+            name_len,
+            info,
         };
         let trace_packet = TracePacket::now_with_data(trace_data);
         self.send(trace_packet);
@@ -120,7 +187,7 @@ impl tracing::Subscriber for Subscriber {
         let trace_data = TraceData::Enter {
             span: span.into_u64(),
         };
-        let trace_packet = TracePacket::now_with_data(trace_data);
+        let trace_packet = TracePacket::now_without_process(trace_data);
         self.send(trace_packet);
     }
 
@@ -128,43 +195,7 @@ impl tracing::Subscriber for Subscriber {
         let trace_data = TraceData::Exit {
             span: span.into_u64(),
         };
-        let trace_packet = TracePacket::now_with_data(trace_data);
+        let trace_packet = TracePacket::now_without_process(trace_data);
         self.send(trace_packet);
     }
-
-    fn record_follows_from(&self, _span: &span::Id, _follows: &span::Id) {}
-}
-
-fn connect() -> io::Result<OwnedFd> {
-    // Create a seqpacket socket
-    let socket = unsafe { libc::socket(AF_UNIX, libc::SOCK_SEQPACKET, 0) };
-    assert!(socket >= 0, "socket failed");
-    // Wrap the socket in a OwnedFd
-    // Safety: socket is a valid file descriptor. Connect result is checked.
-    let fd = unsafe { OwnedFd::from_raw_fd(socket) };
-
-    // Prepare the sockaddr
-    let bytes = UNIX_PACKET_PATH.as_bytes();
-
-    // Safety: sockaddr_un is a C struct with no padding
-    let mut sockaddr = unsafe { mem::MaybeUninit::<sockaddr_un>::zeroed().assume_init() };
-
-    sockaddr.sun_family = AF_UNIX as u16;
-
-    let path = (&mut sockaddr.sun_path.as_mut_slice()[0..bytes.len()]) as *mut _ as *mut [u8];
-    // Safety: path is a valid pointer to a slice of the correct length
-    let path = unsafe { &mut *path };
-    path.clone_from_slice(bytes);
-    let sockaddr = &mut sockaddr as *mut _ as *mut libc::sockaddr;
-    let addr_len = mem::size_of::<sockaddr_un>() as libc::socklen_t;
-
-    // Connect
-    // Safety: sockaddr is a valid pointer to a sockaddr_un. addr_len is the correct size.
-    let ret = unsafe { libc::connect(fd.as_raw_fd(), sockaddr, addr_len) };
-    if ret == -1 {
-        // Safety: close never fails
-        return Err(io::Error::last_os_error());
-    }
-
-    Ok(fd)
 }
