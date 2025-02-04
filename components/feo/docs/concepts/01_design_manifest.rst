@@ -1,7 +1,9 @@
-Config file type - YML
+Config file type - YAML
 ----------------------
-.. warning::
-    This chapter only describes rationale, but is nothing to decide about config file type. Whether later it will go with YML/JSON, it's future discussion and we shall not focus on it during review.
+
+Disclaimer
+----------
+This chapter outlines the rationale behind our approach but does not address the configuration file type. The decision regarding whether to use YAML, JSON will be discussed in the future, and we should refrain from focusing on it in the current review.
 
 ============
 Rationale
@@ -12,7 +14,7 @@ Furthermore, YAML is fully compatible with JSON and can be converted into JSON f
 Config file schema
 -------------------
 
-.. code-block:: yml
+.. codeblock:: yaml
    activities: # Define activities in the application
     GetData: &GetData_label
       whatever_property: 1 # Example how additional properties for the activities can be provided later on
@@ -27,7 +29,7 @@ Config file schema
     state1: &state1_label
       intitial_value: 1
 
-  events: 3 Define events if needed
+  events: # Define events if needed
     event1: &event1_label
 
   # We assume that each flow is executed as a loop, running sequentially from the top to the bottom, unless it is shut down.
@@ -83,7 +85,7 @@ Config file schema
 
 Example
 -----------
-Below simple example to illustrate modeled flow in design configuration file.
+The following is a simple example intended to illustrate the modeled flow within a design configuration file.
 
 ============
 Flow description
@@ -94,7 +96,8 @@ Flow description
 ============
 Config
 ============
-.. code-block:: yml
+
+.. codeblock:: yaml
 	activities: # Define activities in the application
       Activity1: &Activity1_label
       Activity2: &Activity2_label
@@ -133,9 +136,9 @@ Config
                         activity: *Activity8_label
 
 
-To be done
------------
-When conclusion is reached, still to be done:
+Todo
+----
+Upon reaching a conclusion, the following tasks remain to be completed:
 
-- schema (for sake of correct understanding in future)
-- additional docs for config fields/sections
+- Develop a schema to ensure correct understanding in the future.
+- Create additional documentation for configuration fields and sections.
