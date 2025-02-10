@@ -1,0 +1,22 @@
+[package]
+name = "feo"
+version = "0.0.1"
+edition = "2021"
+
+[dependencies]
+feo-log = { workspace = true }
+feo-time = { workspace = true }
+feo-tracing = { workspace = true }
+iceoryx2 = { workspace = true, optional = true }
+libc = { workspace = true }
+mio = { workspace = true }
+postcard = { workspace = true, features = ["experimental-derive"], optional = true}
+serde = { workspace = true, optional = true }
+
+[dev-dependencies]
+feo-logger = { workspace = true }
+
+[features]
+default = []
+ipc_iceoryx2 = ["dep:iceoryx2"]
+recording = ["dep:serde", "dep:postcard"]

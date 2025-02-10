@@ -1,0 +1,30 @@
+[package]
+name = "mini-adas-recording"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+path = "src/bin/adas_deserializer.rs"
+name = "adas_deserializer"
+required-features = ["recording"]
+
+[[bin]]
+path = "src/bin/adas_recorder.rs"
+name = "adas_recorder"
+required-features = ["recording"]
+
+[dependencies]
+feo = { workspace = true, features = ["ipc_iceoryx2"] }
+feo-log = { workspace = true }
+feo-logger = { workspace = true }
+feo-time = { workspace = true }
+feo-tracing = { workspace = true }
+postcard = { workspace = true, features = ["experimental-derive"] }
+serde = { workspace = true, optional = true }
+
+[build-dependencies]
+cc = { workspace = true }
+
+[features]
+default = []
+recording = ["dep:serde", "feo/recording"]

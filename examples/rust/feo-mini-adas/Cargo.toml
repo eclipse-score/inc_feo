@@ -1,0 +1,15 @@
+[package]
+name = "feo-mini-adas"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+feo = { workspace = true, features = ["ipc_iceoryx2"] }
+feo-log = { workspace = true }
+feo-logger = { workspace = true }
+feo-time = { workspace = true }
+feo-tracing = { workspace = true }
+
+[build-dependencies]
+cc = { workspace = true }
+

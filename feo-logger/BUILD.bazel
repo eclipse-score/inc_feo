@@ -1,0 +1,57 @@
+load("@cargo//:defs.bzl", "aliases", "all_crate_deps")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_static_library", "rust_test")
+
+rust_library(
+    name = "libfeo_logger_rust",
+    srcs = [
+        "src/console.rs",
+        "src/fmt.rs",
+        "src/lib.rs",
+        "src/logd.rs",
+        "src/record.rs",
+        "src/thread.rs",
+    ],
+    crate_name = "feo_logger",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        normal = True,
+    ) + [
+        "//feo-log:libfeo_log_rust",
+        "//feo-time:libfeo_time_rust",
+    ],
+)
+
+cc_library(
+    name = "libfeo_logger_cpp",
+    srcs = [
+        "include/logger.h",
+        "src/logger.cc",
+    ],
+    hdrs = [
+        "include/logger.h",
+    ],
+    includes = ["include"],
+    linkstatic = True,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":libfeo_logger_ffi_rust",
+        "//feo-log:libfeo_log_cpp",
+    ],
+)
+
+# FFI wrapper
+rust_static_library(
+    name = "libfeo_logger_ffi_rust",
+    srcs = [
+        "src/ffi.rs",
+    ],
+    deps = [
+        ":libfeo_logger_rust",
+        "//feo-log:libfeo_log_rust",
+    ],
+)
+
+rust_test(
+    name = "libfeo_logger_rust_test",
+    crate = ":libfeo_logger_rust",
+)

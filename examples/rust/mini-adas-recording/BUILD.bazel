@@ -1,0 +1,144 @@
+load("@cargo//:defs.bzl", "all_crate_deps")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+rust_library(
+    name = "libmini_adas_recording_rust",
+    srcs = [
+        "src/activities/components.rs",
+        "src/activities/messages.rs",
+        "src/activities/mod.rs",
+        "src/config.rs",
+        "src/ffi.rs",
+        "src/lib.rs",
+    ],
+    crate_name = "mini_adas_recording",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":libactivities_cc",
+        "//feo:libfeo_rust",
+        "//feo-log:libfeo_log_rust",
+        "//feo-logger:libfeo_logger_rust",
+        "//feo-time:libfeo_time_rust",
+        "//feo-tracing:libfeo_tracing_rust",
+    ],
+)
+
+rust_library(
+    name = "libmini_adas_recording_recording_rust",
+    srcs = [
+        "src/activities/components.rs",
+        "src/activities/messages.rs",
+        "src/activities/mod.rs",
+        "src/config.rs",
+        "src/ffi.rs",
+        "src/lib.rs",
+    ],
+    crate_features = ["recording"],
+    crate_name = "mini_adas_recording",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        normal = True,
+    ) + [
+        ":libactivities_cc",
+        "//feo:libfeo_recording_rust",
+        "//feo-log:libfeo_log_rust",
+        "//feo-logger:libfeo_logger_rust",
+        "//feo-time:libfeo_time_rust",
+        "//feo-tracing:libfeo_tracing_rust",
+        "@cargo//:postcard",
+        "@cargo//:serde",
+    ],
+)
+
+rust_binary(
+    name = "adas_recording_primary",
+    srcs = [
+        "src/bin/adas_recording_primary.rs",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":libmini_adas_recording_rust",
+        "//feo:libfeo_rust",
+        "//feo-log:libfeo_log_rust",
+        "//feo-logger:libfeo_logger_rust",
+        "//feo-time:libfeo_time_rust",
+        "//feo-tracing:libfeo_tracing_rust",
+    ],
+)
+
+rust_binary(
+    name = "adas_recording_secondary_1",
+    srcs = [
+        "src/bin/adas_recording_secondary_1.rs",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":libmini_adas_recording_rust",
+        "//feo:libfeo_rust",
+        "//feo-log:libfeo_log_rust",
+        "//feo-logger:libfeo_logger_rust",
+        "//feo-tracing:libfeo_tracing_rust",
+    ],
+)
+
+rust_binary(
+    name = "adas_recording_secondary_2",
+    srcs = [
+        "src/bin/adas_recording_secondary_2.rs",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":libmini_adas_recording_rust",
+        "//feo:libfeo_rust",
+        "//feo-log:libfeo_log_rust",
+        "//feo-logger:libfeo_logger_rust",
+        "//feo-tracing:libfeo_tracing_rust",
+    ],
+)
+
+rust_binary(
+    name = "adas_recorder",
+    srcs = [
+        "src/bin/adas_recorder.rs",
+    ],
+    crate_features = ["recording"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":libmini_adas_recording_recording_rust",
+        "//feo:libfeo_recording_rust",
+        "//feo-log:libfeo_log_rust",
+        "//feo-logger:libfeo_logger_rust",
+        "//feo-tracing:libfeo_tracing_rust",
+    ],
+)
+
+rust_binary(
+    name = "adas_deserializer",
+    srcs = [
+        "src/bin/adas_deserializer.rs",
+    ],
+    crate_features = ["recording"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":libmini_adas_recording_recording_rust",
+        "//feo:libfeo_recording_rust",
+        "//feo-log:libfeo_log_rust",
+        "//feo-logger:libfeo_logger_rust",
+        "//feo-tracing:libfeo_tracing_rust",
+        "@cargo//:postcard",
+        "@cargo//:serde",
+    ],
+)
+
+cc_library(
+    name = "libactivities_cc",
+    srcs = [
+        "src/activities.cpp",
+    ],
+    hdrs = [
+        "src/include/activities.h",
+    ],
+    includes = [
+        "src/include",
+    ],
+)

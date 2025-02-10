@@ -1,0 +1,27 @@
+load("@aspect_rules_lint//format:defs.bzl", "format_multirun", "format_test")
+
+format_multirun(
+    name = "format.fix",
+    c = "@llvm_toolchain_llvm//:bin/clang-format",
+    cc = "@llvm_toolchain_llvm//:bin/clang-format",
+    rust = "@rules_rust//tools/upstream_wrapper:rustfmt",
+    starlark = "@buildifier_prebuilt//:buildifier",
+    visibility = [
+        "//visibility:public",
+    ],
+)
+
+# See https://github.com/aspect-build/rules_lint/blob/main/docs/formatting.md#2-test-target
+# for why `no_sandbox` and `workspace` are required.
+format_test(
+    name = "format.check",
+    c = "@llvm_toolchain_llvm//:bin/clang-format",
+    cc = "@llvm_toolchain_llvm//:bin/clang-format",
+    no_sandbox = True,
+    rust = "@rules_rust//tools/upstream_wrapper:rustfmt",
+    starlark = "@buildifier_prebuilt//:buildifier",
+    visibility = [
+        "//visibility:public",
+    ],
+    workspace = "//:MODULE.bazel",
+)

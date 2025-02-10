@@ -1,0 +1,20 @@
+[package]
+name = "logd"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+async-stream = { workspace = true }
+bytes = { workspace = true }
+env_logger = { workspace = true }
+feo-log = { workspace = true }
+feo-logger = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true }
+tokio-seqpacket = { workspace = true }
+tokio-util = { workspace = true }
+
+[dev-dependencies]
+feo-time = { workspace = true }
+socket2 = { workspace = true }

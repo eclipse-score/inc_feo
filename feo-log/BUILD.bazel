@@ -1,0 +1,63 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+load("@cargo//:defs.bzl", "aliases", "all_crate_deps")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_static_library")
+
+rust_library(
+    name = "libfeo_log_rust",
+    srcs = [
+        "src/lib.rs",
+    ],
+    crate_name = "feo_log",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        normal = True,
+    ),
+)
+
+# FFI wrapper
+rust_static_library(
+    name = "libfeo_log_ffi_rust",
+    srcs = [
+        "src/ffi.rs",
+    ],
+    deps = all_crate_deps(
+        normal = True,
+    ),
+)
+
+cc_library(
+    name = "libfeo_log_cpp",
+    srcs = [
+        "include/log.h",
+        "src/log.cc",
+    ],
+    hdrs = [
+        "include/log.h",
+    ],
+    includes = ["include"],
+    linkstatic = True,
+    visibility = ["//visibility:public"],
+    deps = [":libfeo_log_ffi_rust"],
+)
+
+rust_binary(
+    name = "feo_log_example_rust",
+    srcs = [
+        "examples/hello.rs",
+    ],
+    deps = [
+        ":libfeo_log_rust",
+        "//feo-logger:libfeo_logger_rust",
+    ],
+)
+
+cc_binary(
+    name = "feo_log_example_cpp",
+    srcs = [
+        "examples/hello.cc",
+    ],
+    deps = [
+        ":libfeo_log_cpp",
+        "//feo-logger:libfeo_logger_cpp",
+    ],
+)

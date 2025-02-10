@@ -1,0 +1,14 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+
+rust_binary(
+    name = "greeter_rust",
+    srcs = [
+        "src/main.rs",
+    ],
+    crate_name = "greeter",
+    visibility = ["//visibility:public"],
+    deps = [
+        # Reference other crate
+        "//examples/rust/greetings:libgreetings_rust",
+    ],
+)

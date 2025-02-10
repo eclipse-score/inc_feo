@@ -1,0 +1,38 @@
+load("@cargo//:defs.bzl", "aliases", "all_crate_deps")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+
+rust_binary(
+    name = "feo_tracer",
+    srcs = [
+        "src/main.rs",
+        "src/progress.rs",
+    ],
+    crate_name = "feo_tracer",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        normal = True,
+    ) + [
+        ":libfeo_tracer",
+        "//feo-log:libfeo_log_rust",
+        "//feo-logger:libfeo_logger_rust",
+    ],
+)
+
+rust_library(
+    name = "libfeo_tracer",
+    srcs = [
+        "src/data.rs",
+        "src/io.rs",
+        "src/lib.rs",
+        "src/perfetto.rs",
+    ],
+    crate_name = "feo_tracer",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        normal = True,
+    ) + [
+        "//feo-log:libfeo_log_rust",
+        "//feo-tracing:libfeo_tracing_rust",
+        "//perfetto-model:libperfetto_model_rust",
+    ],
+)

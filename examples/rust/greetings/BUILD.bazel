@@ -1,0 +1,21 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test_suite")
+
+rust_library(
+    name = "libgreetings_rust",
+    srcs = [
+        "src/lib.rs",
+    ],
+    crate_name = "greetings",
+    visibility = ["//visibility:public"],
+)
+
+rust_test_suite(
+    name = "libgreetings_rust_test",
+    size = "small",
+    srcs = [
+        "tests/smoke.rs",
+    ],
+    deps = [
+        ":libgreetings_rust",
+    ],
+)

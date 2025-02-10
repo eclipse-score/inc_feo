@@ -1,0 +1,82 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+rust_library(
+    name = "libfeo_mini_adas_rust",
+    srcs = [
+        "src/activities/components.rs",
+        "src/activities/messages.rs",
+        "src/activities/mod.rs",
+        "src/config.rs",
+        "src/ffi.rs",
+        "src/lib.rs",
+    ],
+    crate_name = "feo_mini_adas",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":libactivities_cc",
+        "//feo:libfeo_rust",
+        "//feo-log:libfeo_log_rust",
+        "//feo-logger:libfeo_logger_rust",
+        "//feo-time:libfeo_time_rust",
+        "//feo-tracing:libfeo_tracing_rust",
+    ],
+)
+
+rust_binary(
+    name = "adas_primary",
+    srcs = [
+        "src/bin/adas_primary.rs",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":libfeo_mini_adas_rust",
+        "//feo:libfeo_rust",
+        "//feo-log:libfeo_log_rust",
+        "//feo-logger:libfeo_logger_rust",
+        "//feo-time:libfeo_time_rust",
+        "//feo-tracing:libfeo_tracing_rust",
+    ],
+)
+
+rust_binary(
+    name = "adas_secondary_1",
+    srcs = [
+        "src/bin/adas_secondary_1.rs",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":libfeo_mini_adas_rust",
+        "//feo:libfeo_rust",
+        "//feo-log:libfeo_log_rust",
+        "//feo-logger:libfeo_logger_rust",
+        "//feo-tracing:libfeo_tracing_rust",
+    ],
+)
+
+rust_binary(
+    name = "adas_secondary_2",
+    srcs = [
+        "src/bin/adas_secondary_2.rs",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":libfeo_mini_adas_rust",
+        "//feo:libfeo_rust",
+        "//feo-log:libfeo_log_rust",
+        "//feo-logger:libfeo_logger_rust",
+        "//feo-tracing:libfeo_tracing_rust",
+    ],
+)
+
+cc_library(
+    name = "libactivities_cc",
+    srcs = [
+        "src/activities.cpp",
+    ],
+    hdrs = [
+        "src/include/activities.h",
+    ],
+    includes = [
+        "src/include",
+    ],
+)

@@ -1,37 +1,90 @@
-module(name = "score-feo", version = "0.1")
+"""Fixed Execution Order (FEO) framework"""
 
-bazel_dep(
-    name = "rules_rust",
-    version = "0.56.0",
+module(
+    name = "feo",
+    version = "0.1",
+    compatibility_level = 0,
 )
+
+# Rust setup
+bazel_dep(name = "rules_rust", version = "0.56.0")
 
 RUST_EDITION = "2021"
 
-RUST_VERSION = "1.81.0"
+RUST_VERSION = "1.83.0"
 
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
     edition = RUST_EDITION,
     sha256s = {
-        "rustc-1.81.0-x86_64-unknown-linux-gnu.tar.xz": "988a4e4cdecebe4f4a0c52ec4ade5a5bfc58d6958969f5b1e8aac033bda2613e",
-        "clippy-1.81.0-x86_64-unknown-linux-gnu.tar.xz": "c545ea0f2901eb1cd652721350147df11744afbb97eb117d89b1f313e9920ffb",
-        "cargo-1.81.0-x86_64-unknown-linux-gnu.tar.xz": "c50ee4b1ae8695461930e36d5465dddb7c7a0e0f0aa6cbd60de120b17c38b841",
-        "llvm-tools-1.81.0-x86_64-unknown-linux-gnu.tar.xz": "d15a4a0bd4202d2252d826c7bdaee19fdba3c766725f2ccab67a4981c7d5a62f",
-        "rust-std-1.81.0-x86_64-unknown-linux-gnu.tar.xz": "6ddf80f254e8eea9956308ba89fd68e1ac7885853df9239b07bbc9f047b7562f",
+        "rustc-1.83.0-x86_64-unknown-linux-gnu.tar.xz": "6ec40e0405c8cbed3b786a97d374c144b012fc831b7c22b535f8ecb524f495ad",
+        "clippy-1.83.0-x86_64-unknown-linux-gnu.tar.xz": "ef6c05abcfd861ff0bca41d408e126dda195dc966ee35abee57645a12d418f5b",
+        "cargo-1.83.0-x86_64-unknown-linux-gnu.tar.xz": "de834a4062d9cd200f8e0cdca894c0b98afe26f1396d80765df828880a39b98c",
+        "llvm-tools-1.83.0-x86_64-unknown-linux-gnu.tar.xz": "b931673b309c229e234f03271aaa777ea149c3c41f0fb43f3ef13a272540299a",
+        "rust-std-1.83.0-x86_64-unknown-linux-gnu.tar.xz": "c88fe6cb22f9d2721f26430b6bdd291e562da759e8629e2b4c7eb2c7cad705f2",
     },
     versions = [RUST_VERSION],
 )
 use_repo(rust, "rust_toolchains")
 
-crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
+crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
 crate.from_cargo(
-    name = "crates",
+    name = "cargo",
     cargo_lockfile = "//:Cargo.lock",
-    manifests = ["//:Cargo.toml"],
+    manifests = [
+        "//:Cargo.toml",
+        "//:examples/rust/feo-mini-adas/Cargo.toml",
+        "//:examples/rust/greeter/Cargo.toml",
+        "//:examples/rust/greetings/Cargo.toml",
+        "//:examples/rust/mini-adas-recording/Cargo.toml",
+        "//:feo/Cargo.toml",
+        "//:feo-log/Cargo.toml",
+        "//:feo-logger/Cargo.toml",
+        "//:feo-time/Cargo.toml",
+        "//:feo-tracer/Cargo.toml",
+        "//:feo-tracing/Cargo.toml",
+        "//:logd/Cargo.toml",
+        "//:perfetto-model/Cargo.toml",
+    ],
 )
-use_repo(crate, "crates")
+use_repo(crate, "cargo")
 
 # To update, run `bazel run @rules_rust//tools/rust_analyzer:gen_rust_project`.
 rust_analyzer = use_extension("@rules_rust//tools/rust_analyzer:deps.bzl", "rust")
 rust_analyzer.rust_analyzer_dependencies()
 
+# C/C++ setup
+bazel_dep(name = "googletest", version = "1.15.0")
+bazel_dep(name = "rules_cc", version = "0.0.17")
+bazel_dep(name = "toolchains_llvm", version = "1.3.0")
+
+# Configure and register the toolchain.
+llvm = use_extension("@toolchains_llvm//toolchain/extensions:llvm.bzl", "llvm")
+llvm.toolchain(
+    llvm_version = "19.1.3",
+)
+use_repo(llvm, "llvm_toolchain_llvm")
+
+register_toolchains("@llvm_toolchain_llvm//:all")
+
+# Buildifier dependency for formatting and linting bazel files.
+bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
+
+# Generic linting and formatting rules.
+bazel_dep(name = "aspect_rules_lint", version = "1.0.0-rc9")
+git_override(
+    module_name = "aspect_rules_lint",
+    commit = "5cbe85fb43d3c4d20f30e31c88a12ec5eaf06e11",
+    remote = "https://github.com/dependix/rules_lint.git",
+)
+
+# Python dependency to register a toolchain used in other modules.
+# We want to run bazel as root in CI and need the `rules_python` in other modules to accept that.
+bazel_dep(name = "rules_python", version = "1.1.0")
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(
+    ignore_root_user_error = True,
+    is_default = True,
+    python_version = "3.12",
+)

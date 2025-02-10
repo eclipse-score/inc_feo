@@ -1,0 +1,13 @@
+[package]
+name = "feo-tracing"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+feo-log = { workspace = true }
+libc = { workspace = true }
+postcard = { workspace = true }
+serde = { workspace = true }
+tracing = { workspace = true }
+tracing-serde-structured = { workspace = true }
+tracing-subscriber = { workspace = true }

@@ -1,0 +1,10 @@
+[package]
+name = "feo-log"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+log = { workspace = true }
+
+[dev-dependencies]
+feo-logger = { workspace = true }

@@ -1,0 +1,11 @@
+[package]
+name = "feo-logger"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+console = { workspace = true }
+feo-log = { workspace = true }
+feo-time = { workspace = true }
+libc = { workspace = true }
+time = { workspace = true }

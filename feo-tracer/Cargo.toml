@@ -1,0 +1,22 @@
+[package]
+name = "feo-tracer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+argh = { workspace = true }
+feo-log = { workspace = true }
+feo-logger = { workspace = true }
+feo-tracing = { workspace = true }
+futures = { workspace = true }
+human_bytes = { workspace = true }
+indicatif = { workspace = true }
+indicatif-log-bridge = { workspace = true }
+perfetto-model = { workspace = true }
+postcard = { workspace = true }
+prost = { workspace = true }
+rand = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tokio-seqpacket = { workspace = true }

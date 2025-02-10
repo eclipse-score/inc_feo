@@ -1,2 +1,5 @@
+.vscode
+MODULE.bazel.lock
 bazel-*
-*.lock
+rust-project.json
+target

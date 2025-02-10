@@ -1,0 +1,5 @@
+exports_files([
+    ".clang-format",
+    "clippy.toml",
+    "MODULE.bazel",
+])
