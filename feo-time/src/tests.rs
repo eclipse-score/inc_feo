@@ -268,7 +268,7 @@ fn big_math() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "speed can be set only once")]
 fn set_speed_twice() {
     assert!(crate::get_speed().is_none());
     crate::speed(2);
