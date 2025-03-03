@@ -118,7 +118,7 @@ pub fn speed(factor: i32) {
 /// Get the current speed factor if set. Otherwise return None.
 pub fn get_speed() -> Option<i32> {
     let factor = FACTOR.load(Ordering::Relaxed);
-    (factor == 0).then_some(factor)
+    (factor != 0).then_some(factor)
 }
 
 impl Instant {
