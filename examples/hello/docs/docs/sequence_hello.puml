@@ -1,0 +1,60 @@
+@startuml
+!pragma teoz true
+
+actor Main
+participant Executor
+participant AgentImpl <<interface Agent, InternalAgent>>
+
+box Activities #LightBlue
+
+participant activity
+participant HelloAct
+participant WorldAct
+
+end box
+
+
+Main -> Executor : new(activity_chain)
+Main -> AgentImpl : register(HelloAct)
+Main -> AgentImpl : register(WorldAct)
+
+Main -> Executor: execute_chain()
+Executor -> AgentImpl: execute_command(INIT, ...)
+
+group InitSequence
+    loop activity in registered_activities
+        AgentImpl -> activity: init()
+    end
+end
+
+AgentImpl -> Executor: done()
+
+group Run
+    loop true
+        Executor -> AgentImpl: execute_command(RUN, HelloActivityId)
+        AgentImpl -> HelloAct: run()
+        AgentImpl -> Executor: done()
+
+        Executor -> AgentImpl: execute_command(RUN, WorldActivityId)
+        AgentImpl -> WorldAct: run()
+        {start} AgentImpl -> Executor: done()
+    end
+end
+
+{end} Main -> Executor : stop_chain()
+{start} <-> {end} : some time passed
+
+Executor -> AgentImpl: execute_command(STOP, ...)
+
+group StopSequence
+    loop activity in registered_activities
+        AgentImpl -> activity: shutdown()
+    end
+end
+
+AgentImpl -> Executor: done()
+
+
+
+@enduml
+
