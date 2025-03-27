@@ -10,6 +10,10 @@ feo-logger = { workspace = true }
 feo-time = { workspace = true }
 feo-tracing = { workspace = true }
 
+async_runtime = { workspace = true }
+orchestration = { workspace = true }
+logging_tracing = { workspace = true }
+
 [build-dependencies]
 cc = { workspace = true }
 

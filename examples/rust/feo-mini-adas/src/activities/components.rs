@@ -11,10 +11,12 @@ use feo::com::{ActivityInput, ActivityOutput};
 use feo::prelude::{Activity, ActivityId};
 use feo_log::debug;
 use feo_tracing::{instrument, tracing};
+use orchestration::prelude::*;
 use std::ffi::c_void;
 use std::hash::{BuildHasher as _, Hasher as _, RandomState};
 use std::mem::MaybeUninit;
 use std::ops::Range;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
@@ -37,14 +39,14 @@ pub struct Camera {
 }
 
 impl Camera {
-    pub fn build(activity_id: ActivityId, image_topic: &str) -> Box<dyn Activity> {
-        Box::new(Self {
+    pub fn build(activity_id: ActivityId, image_topic: &str) -> Self {
+        Self {
             activity_id,
             output_image: ActivityOutput::get(image_topic),
             num_people: 4,
             num_cars: 10,
             distance_obstacle: 40.0,
-        })
+        }
     }
 
     fn get_image(&mut self) -> CameraImage {
@@ -64,6 +66,8 @@ impl Camera {
         }
     }
 }
+
+unsafe impl Send for Camera {}
 
 impl Activity for Camera {
     fn id(&self) -> ActivityId {
@@ -105,12 +109,12 @@ pub struct Radar {
 }
 
 impl Radar {
-    pub fn build(activity_id: ActivityId, radar_topic: &str) -> Box<dyn Activity> {
-        Box::new(Self {
+    pub fn build(activity_id: ActivityId, radar_topic: &str) -> Self {
+        Self {
             activity_id,
             output_scan: ActivityOutput::get(radar_topic),
             distance_obstacle: 40.0,
-        })
+        }
     }
 
     fn get_scan(&mut self) -> RadarScan {
@@ -127,6 +131,8 @@ impl Radar {
         }
     }
 }
+
+unsafe impl Send for Radar {}
 
 impl Activity for Radar {
     fn id(&self) -> ActivityId {
@@ -170,19 +176,46 @@ pub struct NeuralNet {
     output_scene: ActivityOutput<Scene>,
 }
 
+unsafe impl Send for NeuralNet {} // TODO: Both Feo and runtime has to fix this, runtime will support not send soon, but maybe
+                                  // feo itself shall not provoke !Send without any good reason
+
+pub trait TempActivityTrait {
+    fn step_runtime(&mut self) -> ActionResult;
+
+    fn start(&mut self) -> ActionResult;
+
+    fn stop(&mut self) -> ActionResult;
+
+    fn get_named_id(&self) -> &'static str;
+}
+
 impl NeuralNet {
     pub fn build(
         activity_id: ActivityId,
         image_topic: &str,
         scan_topic: &str,
         scene_topic: &str,
-    ) -> Box<dyn Activity> {
-        Box::new(Self {
+    ) -> Self {
+        Self {
             activity_id,
             input_image: ActivityInput::get(image_topic),
             input_scan: ActivityInput::get(scan_topic),
             output_scene: ActivityOutput::get(scene_topic),
-        })
+        }
+    }
+
+    pub fn build_val(
+        activity_id: ActivityId,
+        image_topic: &str,
+        scan_topic: &str,
+        scene_topic: &str,
+    ) -> Self {
+        Self {
+            activity_id,
+            input_image: ActivityInput::get(image_topic),
+            input_scan: ActivityInput::get(scan_topic),
+            output_scene: ActivityOutput::get(scene_topic),
+        }
     }
 
     fn infer(image: &CameraImage, radar: &RadarScan, scene: &mut MaybeUninit<Scene>) {
@@ -258,17 +291,19 @@ pub struct EmergencyBraking {
     output_brake_instruction: ActivityOutput<BrakeInstruction>,
 }
 
+unsafe impl Send for EmergencyBraking {}
+
 impl EmergencyBraking {
     pub fn build(
         activity_id: ActivityId,
         scene_topic: &str,
         brake_instruction_topic: &str,
-    ) -> Box<dyn Activity> {
-        Box::new(Self {
+    ) -> Self {
+        Self {
             activity_id,
             input_scene: ActivityInput::get(scene_topic),
             output_brake_instruction: ActivityOutput::get(brake_instruction_topic),
-        })
+        }
     }
 }
 
@@ -333,12 +368,14 @@ pub struct BrakeController {
     input_brake_instruction: ActivityInput<BrakeInstruction>,
 }
 
+unsafe impl Send for BrakeController {}
+
 impl BrakeController {
-    pub fn build(activity_id: ActivityId, brake_instruction_topic: &str) -> Box<dyn Activity> {
-        Box::new(Self {
+    pub fn build(activity_id: ActivityId, brake_instruction_topic: &str) -> Self {
+        Self {
             activity_id,
             input_brake_instruction: ActivityInput::get(brake_instruction_topic),
-        })
+        }
     }
 }
 
@@ -382,12 +419,14 @@ pub struct EnvironmentRenderer {
     input_scene: ActivityInput<Scene>,
 }
 
+unsafe impl Send for EnvironmentRenderer {}
+
 impl EnvironmentRenderer {
-    pub fn build(activity_id: ActivityId, scene_topic: &str) -> Box<dyn Activity> {
-        Box::new(Self {
+    pub fn build(activity_id: ActivityId, scene_topic: &str) -> Self {
+        Self {
             activity_id,
             input_scene: ActivityInput::get(scene_topic),
-        })
+        }
     }
 }
 
@@ -431,21 +470,19 @@ pub struct LaneAssist {
     cpp_activity: *mut c_void,
 }
 
+unsafe impl Send for LaneAssist {}
+
 impl LaneAssist {
-    pub fn build(
-        activity_id: ActivityId,
-        scene_topic: &str,
-        steering_topic: &str,
-    ) -> Box<dyn Activity> {
+    pub fn build(activity_id: ActivityId, scene_topic: &str, steering_topic: &str) -> Self {
         // Create C++ activity in heap memory of C++
         let cpp_activity = unsafe { create_lane_assist(activity_id.into()) };
 
-        Box::new(Self {
+        Self {
             activity_id,
             input_scene: ActivityInput::get(scene_topic),
             output_steering: ActivityOutput::get(steering_topic),
             cpp_activity,
-        })
+        }
     }
 }
 
@@ -507,12 +544,14 @@ pub struct SteeringController {
     input_steering: ActivityInput<Steering>,
 }
 
+unsafe impl Send for SteeringController {}
+
 impl SteeringController {
-    pub fn build(activity_id: ActivityId, steering_topic: &str) -> Box<dyn Activity> {
-        Box::new(Self {
+    pub fn build(activity_id: ActivityId, steering_topic: &str) -> Self {
+        Self {
             activity_id,
             input_steering: ActivityInput::get(steering_topic),
-        })
+        }
     }
 }
 
@@ -582,3 +621,163 @@ fn sleep_random() {
         gen_random_in_range(SLEEP_RANGE) as u64
     ));
 }
+
+impl TempActivityTrait for NeuralNet {
+    fn step_runtime(&mut self) -> ActionResult {
+        self.step();
+        Ok(())
+    }
+
+    fn start(&mut self) -> ActionResult {
+        self.startup();
+        Ok(())
+    }
+
+    fn stop(&mut self) -> ActionResult {
+        self.shutdown();
+        Ok(())
+    }
+
+    fn get_named_id(&self) -> &'static str {
+        NEURAL_NET_ACTIVITY_NAME
+    }
+}
+
+impl TempActivityTrait for EmergencyBraking {
+    fn step_runtime(&mut self) -> ActionResult {
+        self.step();
+        Ok(())
+    }
+
+    fn start(&mut self) -> ActionResult {
+        self.startup();
+        Ok(())
+    }
+
+    fn stop(&mut self) -> ActionResult {
+        self.shutdown();
+        Ok(())
+    }
+
+    fn get_named_id(&self) -> &'static str {
+        EMG_BREAK_ACTIVITY_NAME
+    }
+}
+
+impl TempActivityTrait for BrakeController {
+    fn step_runtime(&mut self) -> ActionResult {
+        self.step();
+        Ok(())
+    }
+
+    fn start(&mut self) -> ActionResult {
+        self.startup();
+        Ok(())
+    }
+
+    fn stop(&mut self) -> ActionResult {
+        self.shutdown();
+        Ok(())
+    }
+
+    fn get_named_id(&self) -> &'static str {
+        BREAK_CTL_ACTIVITY_NAME
+    }
+}
+
+impl TempActivityTrait for LaneAssist {
+    fn step_runtime(&mut self) -> ActionResult {
+        self.step();
+        Ok(())
+    }
+
+    fn start(&mut self) -> ActionResult {
+        self.startup();
+        Ok(())
+    }
+
+    fn stop(&mut self) -> ActionResult {
+        self.shutdown();
+        Ok(())
+    }
+
+    fn get_named_id(&self) -> &'static str {
+        LANE_ASST_ACTIVITY_NAME
+    }
+}
+
+impl TempActivityTrait for SteeringController {
+    fn step_runtime(&mut self) -> ActionResult {
+        self.step();
+        Ok(())
+    }
+
+    fn start(&mut self) -> ActionResult {
+        self.startup();
+        Ok(())
+    }
+
+    fn stop(&mut self) -> ActionResult {
+        self.shutdown();
+        Ok(())
+    }
+
+    fn get_named_id(&self) -> &'static str {
+        STR_CTL_ACTIVITY_NAME
+    }
+}
+
+impl TempActivityTrait for Radar {
+    fn step_runtime(&mut self) -> ActionResult {
+        self.step();
+        Ok(())
+    }
+
+    fn start(&mut self) -> ActionResult {
+        self.startup();
+        Ok(())
+    }
+
+    fn stop(&mut self) -> ActionResult {
+        self.shutdown();
+        Ok(())
+    }
+
+    fn get_named_id(&self) -> &'static str {
+        RADAR_ACTIVITY_NAME
+    }
+}
+
+impl TempActivityTrait for Camera {
+    fn step_runtime(&mut self) -> ActionResult {
+        self.step();
+        Ok(())
+    }
+
+    fn start(&mut self) -> ActionResult {
+        self.startup();
+        Ok(())
+    }
+
+    fn stop(&mut self) -> ActionResult {
+        self.shutdown();
+        Ok(())
+    }
+
+    fn get_named_id(&self) -> &'static str {
+        CAM_ACTIVITY_NAME
+    }
+}
+
+pub const CAM_ACTIVITY_NAME: &'static str = "cam_activity";
+pub const RADAR_ACTIVITY_NAME: &'static str = "radar_activity";
+pub const NEURAL_NET_ACTIVITY_NAME: &'static str = "neuralnet_activity";
+pub const ENV_READER_ACTIVITY_NAME: &'static str = "env_reader_activity";
+pub const EMG_BREAK_ACTIVITY_NAME: &'static str = "emg_break_activity";
+pub const BREAK_CTL_ACTIVITY_NAME: &'static str = "break_ctl_activity";
+pub const LANE_ASST_ACTIVITY_NAME: &'static str = "lane_asst_activity";
+pub const STR_CTL_ACTIVITY_NAME: &'static str = "str_ctl_activity";
+
+pub const PRIMARY_NAME: &'static str = "primary_agent";
+pub const SECONDARY1_NAME: &'static str = "secondary1_agent";
+pub const SECONDARY2_NAME: &'static str = "secondary2_agent";

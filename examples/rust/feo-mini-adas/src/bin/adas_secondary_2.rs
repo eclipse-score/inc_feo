@@ -2,12 +2,27 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use async_runtime::{
+    runtime::runtime::AsyncRuntimeBuilder, scheduler::execution_engine::ExecutionEngineBuilder,
+};
 use configuration::secondary_agent::Builder;
 use feo::configuration::worker_pool;
 use feo::prelude::*;
 use feo_log::{info, LevelFilter};
-use feo_mini_adas::config;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use feo_mini_adas::{
+    activities::{
+        components::{
+            BrakeController, EmergencyBraking, LaneAssist, SteeringController, SECONDARY2_NAME,
+        },
+        runtime_adapters::{activity_into_invokes, LocalFeoAgent},
+    },
+    config::{self, *},
+};
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 /// This agent's ID
 const AGENT_ID: AgentId = AgentId::new(102);
@@ -20,30 +35,49 @@ fn main() {
 
     info!("Starting agent {AGENT_ID}");
 
-    // Create worker pool builder activity builder for local worker pool
-    let mut worker_pool_builder = worker_pool::Builder::default();
+    let mut runtime = AsyncRuntimeBuilder::new()
+        .with_engine(
+            ExecutionEngineBuilder::new()
+                .task_queue_size(256)
+                .workers(3),
+        )
+        .build()
+        .unwrap();
 
-    let mut worker_pool_configuration = config::pool_configuration();
-    let assignments = worker_pool_configuration
-        .remove(&AGENT_ID)
-        .expect("missing agent id in pool configuration");
+    runtime
+        .enter_engine(async {
+            let emg_brk_act = Arc::new(Mutex::new(EmergencyBraking::build(
+                5.into(),
+                TOPIC_INFERRED_SCENE,
+                TOPIC_CONTROL_BRAKES,
+            )));
+            let brk_ctr_act = Arc::new(Mutex::new(BrakeController::build(
+                6.into(),
+                TOPIC_CONTROL_BRAKES,
+            )));
+            let lane_asst_act = Arc::new(Mutex::new(LaneAssist::build(
+                7.into(),
+                TOPIC_INFERRED_SCENE,
+                TOPIC_CONTROL_STEERING,
+            )));
 
-    // Assign activities to workers
-    for (worker_id, activities) in assignments {
-        for (activity_id, builder) in activities {
-            worker_pool_builder.activity(worker_id, activity_id, builder);
-        }
-    }
+            let str_ctr_act = Arc::new(Mutex::new(SteeringController::build(
+                8.into(),
+                TOPIC_CONTROL_STEERING,
+            )));
 
-    let (worker_pool, _, receiver) = worker_pool_builder.build().expect("Worker pool is empty");
+            let mut acts = Vec::new();
+            acts.push(activity_into_invokes(&emg_brk_act));
+            acts.push(activity_into_invokes(&brk_ctr_act));
+            acts.push(activity_into_invokes(&lane_asst_act));
+            acts.push(activity_into_invokes(&str_ctr_act));
 
-    // Construct the agent
-    let agent = Builder::default()
-        .id(AGENT_ID)
-        .primary(PRIMARY_ADDR)
-        .worker_pool(worker_pool, receiver)
-        .build();
+            let mut agent = LocalFeoAgent::new(acts, SECONDARY2_NAME);
+            let mut program = agent.create_program();
+            program.run_n(2).await;
+            info!("Finished");
+        })
+        .unwrap_or_default();
 
-    // Start the agent loop and never return.
-    secondary::run(agent);
+    std::thread::sleep(Duration::new(20, 0));
 }

@@ -2,12 +2,31 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use async_runtime::{
+    runtime::{runtime::AsyncRuntimeBuilder, *},
+    scheduler::execution_engine::ExecutionEngineBuilder,
+};
+use feo_mini_adas::activities::{
+    components::{TempActivityTrait, SECONDARY1_NAME},
+    runtime_adapters::{activity_into_invokes, LocalFeoAgent},
+};
+
 use configuration::secondary_agent::Builder;
 use feo::configuration::worker_pool;
 use feo::prelude::*;
 use feo_log::{info, LevelFilter};
-use feo_mini_adas::config;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use feo_mini_adas::{
+    activities::components::{EnvironmentRenderer, NeuralNet},
+    config::{self, *},
+};
+
+use logging_tracing::{prelude::*, TracingLibrary};
+use orchestration::actions::event::Event;
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 /// This agent's ID
 const AGENT_ID: AgentId = AgentId::new(101);
@@ -15,35 +34,63 @@ const AGENT_ID: AgentId = AgentId::new(101);
 const PRIMARY_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8081);
 
 fn main() {
-    feo_logger::init(LevelFilter::Debug, true, true);
-    feo_tracing::init(feo_tracing::LevelFilter::TRACE);
+    // feo_logger::init(LevelFilter::Debug, true, true);
+    // feo_tracing::init(feo_tracing::LevelFilter::TRACE);
+
+    let logger = TracingLibraryBuilder::new()
+        .global_log_level(Level::TRACE)
+        .trace_scope(TraceScope::AppScope)
+        .enable_tracing(false)
+        .build();
+
+    logger.init_log_trace();
 
     info!("Starting agent {AGENT_ID}");
 
-    // Create worker pool builder activity builder for local worker pool
-    let mut worker_pool_builder = worker_pool::Builder::default();
+    // let environ_renderer_act: Arc<Mutex<dyn Activity>> = Arc::new(Mutex::new(
+    //     EnvironmentRenderer::build(4.into(), TOPIC_INFERRED_SCENE),
+    // ));
 
-    let mut worker_pool_configuration = config::pool_configuration();
-    let assignments = worker_pool_configuration
-        .remove(&AGENT_ID)
-        .expect("missing agent id in pool configuration");
+    let mut runtime = AsyncRuntimeBuilder::new()
+        .with_engine(
+            ExecutionEngineBuilder::new()
+                .task_queue_size(256)
+                .workers(3),
+        )
+        .build()
+        .unwrap();
 
-    // Assign activities to workers
-    for (worker_id, activities) in assignments {
-        for (activity_id, builder) in activities {
-            worker_pool_builder.activity(worker_id, activity_id, builder);
-        }
-    }
+    runtime
+        .enter_engine(async {
+            let neural_net_act = Arc::new(Mutex::new(NeuralNet::build_val(
+                3.into(),
+                TOPIC_CAMERA_FRONT,
+                TOPIC_RADAR_FRONT,
+                TOPIC_INFERRED_SCENE,
+            )));
 
-    let (worker_pool, _, receiver) = worker_pool_builder.build().expect("Worker pool is empty");
+            let as_runtime = activity_into_invokes(&neural_net_act);
 
-    // Construct the agent
-    let agent = Builder::default()
-        .id(AGENT_ID)
-        .primary(PRIMARY_ADDR)
-        .worker_pool(worker_pool, receiver)
-        .build();
+            let mut acts = Vec::new();
+            acts.push(as_runtime);
 
-    // Start the agent loop and never return.
-    secondary::run(agent);
+            let mut agent = LocalFeoAgent::new(acts, SECONDARY1_NAME);
+            let mut program = agent.create_program();
+
+            Event::get_instance()
+                .lock()
+                .unwrap()
+                .create_polling_thread();
+
+            program.run_n(2).await;
+            info!("Finished");
+        })
+        .unwrap_or_default();
+
+    // let activities = vec![neural_net_act, environ_renderer_act];
+    // let concurrency = vec![true, false]; // TRUE: if the activities of the AGENT is independent within agent's context
+
+    // let agent = Agent::new(2, &activities, concurrency, Engine::default());
+
+    std::thread::sleep(Duration::new(2000, 0));
 }

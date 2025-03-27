@@ -16,6 +16,12 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
+
+async_runtime = { path = "../performance_stack_rust/async_runtime" }
+orchestration = { path = "../performance_stack_rust/orchestration" }
+logging_tracing = { path = "../performance_stack_rust/logging_tracing" }
+
+
 anyhow = "1.0.49"
 argh = "0.1.13"
 async-stream = "0.3.6"
