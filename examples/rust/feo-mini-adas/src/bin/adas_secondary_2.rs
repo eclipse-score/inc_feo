@@ -18,6 +18,8 @@ use feo_mini_adas::{
     },
     config::{self, *},
 };
+use logging_tracing::{prelude::*, TraceScope, TracingLibraryBuilder};
+use orchestration::prelude::Event;
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::{Arc, Mutex},
@@ -30,8 +32,16 @@ const AGENT_ID: AgentId = AgentId::new(102);
 const PRIMARY_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8081);
 
 fn main() {
-    feo_logger::init(LevelFilter::Debug, true, true);
-    feo_tracing::init(feo_tracing::LevelFilter::TRACE);
+    // feo_logger::init(LevelFilter::Debug, true, true);
+    // feo_tracing::init(feo_tracing::LevelFilter::TRACE);
+
+    let logger = TracingLibraryBuilder::new()
+        .global_log_level(Level::TRACE)
+        .trace_scope(TraceScope::AppScope)
+        .enable_tracing(true)
+        .build();
+
+    logger.init_log_trace();
 
     info!("Starting agent {AGENT_ID}");
 
@@ -43,6 +53,11 @@ fn main() {
         )
         .build()
         .unwrap();
+
+    Event::get_instance()
+        .lock()
+        .unwrap()
+        .create_polling_thread();
 
     runtime
         .enter_engine(async {
@@ -74,10 +89,12 @@ fn main() {
 
             let mut agent = LocalFeoAgent::new(acts, SECONDARY2_NAME);
             let mut program = agent.create_program();
+            info!("{:?}", program);
+
             program.run_n(2).await;
             info!("Finished");
         })
         .unwrap_or_default();
 
-    std::thread::sleep(Duration::new(20, 0));
+    std::thread::sleep(Duration::new(2000, 0));
 }

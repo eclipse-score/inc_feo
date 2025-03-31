@@ -145,11 +145,6 @@ impl GlobalOrchestrator {
 
         println!("Executor starts syncing with agents and execution of activity chain...");
 
-        Event::get_instance()
-            .lock()
-            .unwrap()
-            .create_polling_thread();
-
         print!("{:?}", program);
 
         program.run_n(2).await;

@@ -622,6 +622,27 @@ fn sleep_random() {
     ));
 }
 
+impl TempActivityTrait for EnvironmentRenderer {
+    fn step_runtime(&mut self) -> ActionResult {
+        self.step();
+        Ok(())
+    }
+
+    fn start(&mut self) -> ActionResult {
+        self.startup();
+        Ok(())
+    }
+
+    fn stop(&mut self) -> ActionResult {
+        self.shutdown();
+        Ok(())
+    }
+
+    fn get_named_id(&self) -> &'static str {
+        ENV_READER_ACTIVITY_NAME
+    }
+}
+
 impl TempActivityTrait for NeuralNet {
     fn step_runtime(&mut self) -> ActionResult {
         self.step();

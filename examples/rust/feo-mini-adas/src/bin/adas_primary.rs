@@ -35,7 +35,7 @@ fn main() {
     let logger = TracingLibraryBuilder::new()
         .global_log_level(Level::TRACE)
         .trace_scope(TraceScope::AppScope)
-        .enable_tracing(false)
+        .enable_tracing(true)
         .build();
 
     logger.init_log_trace();
@@ -50,7 +50,7 @@ fn main() {
     let agents: Vec<String> = vec![
         PRIMARY_NAME.to_string(),
         SECONDARY1_NAME.to_string(),
-        // SECONDARY2_NAME.to_string(),
+        SECONDARY2_NAME.to_string(),
     ];
 
     let mut runtime = AsyncRuntimeBuilder::new()
@@ -61,6 +61,11 @@ fn main() {
         )
         .build()
         .unwrap();
+
+    Event::get_instance()
+        .lock()
+        .unwrap()
+        .create_polling_thread();
 
     runtime
         .enter_engine(async {

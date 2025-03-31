@@ -40,16 +40,12 @@ fn main() {
     let logger = TracingLibraryBuilder::new()
         .global_log_level(Level::TRACE)
         .trace_scope(TraceScope::AppScope)
-        .enable_tracing(false)
+        .enable_tracing(true)
         .build();
 
     logger.init_log_trace();
 
     info!("Starting agent {AGENT_ID}");
-
-    // let environ_renderer_act: Arc<Mutex<dyn Activity>> = Arc::new(Mutex::new(
-    //     EnvironmentRenderer::build(4.into(), TOPIC_INFERRED_SCENE),
-    // ));
 
     let mut runtime = AsyncRuntimeBuilder::new()
         .with_engine(
@@ -60,6 +56,11 @@ fn main() {
         .build()
         .unwrap();
 
+    Event::get_instance()
+        .lock()
+        .unwrap()
+        .create_polling_thread();
+
     runtime
         .enter_engine(async {
             let neural_net_act = Arc::new(Mutex::new(NeuralNet::build_val(
@@ -69,28 +70,22 @@ fn main() {
                 TOPIC_INFERRED_SCENE,
             )));
 
-            let as_runtime = activity_into_invokes(&neural_net_act);
+            let environ_renderer_act = Arc::new(Mutex::new(EnvironmentRenderer::build(
+                4.into(),
+                TOPIC_INFERRED_SCENE,
+            )));
 
             let mut acts = Vec::new();
-            acts.push(as_runtime);
+            acts.push(activity_into_invokes(&neural_net_act));
+            acts.push(activity_into_invokes(&environ_renderer_act));
 
             let mut agent = LocalFeoAgent::new(acts, SECONDARY1_NAME);
             let mut program = agent.create_program();
-
-            Event::get_instance()
-                .lock()
-                .unwrap()
-                .create_polling_thread();
 
             program.run_n(2).await;
             info!("Finished");
         })
         .unwrap_or_default();
-
-    // let activities = vec![neural_net_act, environ_renderer_act];
-    // let concurrency = vec![true, false]; // TRUE: if the activities of the AGENT is independent within agent's context
-
-    // let agent = Agent::new(2, &activities, concurrency, Engine::default());
 
     std::thread::sleep(Duration::new(2000, 0));
 }
