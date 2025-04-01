@@ -24,11 +24,12 @@ pub struct ActivityDetails {
 ///
 /// Returns startup, step, shutdown for activity as invoke actions
 ///
-pub fn activity_into_invokes<T: 'static + Send + TempActivityTrait>(
-    obj: &Arc<Mutex<T>>,
-) -> ActivityDetails {
+pub fn activity_into_invokes<T>(obj: &Arc<Mutex<T>>) -> ActivityDetails
+where
+    T: 'static + Send + TempActivityTrait<T = T>,
+{
     let start = Invoke::from_arc(obj.clone(), T::start);
-    let step = Invoke::from_arc(obj.clone(), T::step_runtime);
+    let step = Invoke::from_arc_a(obj.clone(), T::step_runtime);
     let stop = Invoke::from_arc(obj.clone(), T::stop);
     ActivityDetails {
         binded_hooks: (Some(start), Some(step), Some(stop)),
@@ -128,10 +129,23 @@ impl GlobalOrchestrator {
         top
     }
 
+    fn wait_startup_completed(&self) -> Box<dyn ActionTrait> {
+        let mut top = Sequence::new_with_id(NamedId::new_static("wait_startup_completed"));
+
+        for name in &self.agents {
+            let sub_sequence = Sync::new(format!("{}_startup_done", name).as_str());
+
+            top = top.with_step(sub_sequence);
+        }
+
+        top
+    }
+
     fn startup(&self) -> Box<dyn ActionTrait> {
         let seq = Sequence::new_with_id(NamedId::new_static("startup"))
             .with_step(self.sync_to_agents())
-            .with_step(self.release_agents());
+            .with_step(self.release_agents())
+            .with_step(self.wait_startup_completed());
 
         seq
     }

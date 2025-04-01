@@ -16,7 +16,7 @@ use std::ffi::c_void;
 use std::hash::{BuildHasher as _, Hasher as _, RandomState};
 use std::mem::MaybeUninit;
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -179,8 +179,16 @@ pub struct NeuralNet {
 unsafe impl Send for NeuralNet {} // TODO: Both Feo and runtime has to fix this, runtime will support not send soon, but maybe
                                   // feo itself shall not provoke !Send without any good reason
 
-pub trait TempActivityTrait {
-    fn step_runtime(&mut self) -> ActionResult;
+pub trait TempActivityTrait: Send {
+    type T; // Activity Type
+
+    ///
+    /// This let you use async context in step function so You are free now to use non blocking sleep, non blocking wait on IO etc.
+    /// There is no problem to create trait with plain `fn` but then async context is lost for activity
+    ///
+    fn step_runtime(
+        instance: Arc<Mutex<Self::T>>,
+    ) -> impl std::future::Future<Output = ActionResult> + Send;
 
     fn start(&mut self) -> ActionResult;
 
@@ -623,9 +631,15 @@ fn sleep_random() {
 }
 
 impl TempActivityTrait for EnvironmentRenderer {
-    fn step_runtime(&mut self) -> ActionResult {
-        self.step();
-        Ok(())
+    type T = EnvironmentRenderer;
+
+    fn step_runtime(
+        instance: Arc<Mutex<Self::T>>,
+    ) -> impl std::future::Future<Output = ActionResult> + Send {
+        async move {
+            instance.lock().unwrap().step();
+            Ok(())
+        }
     }
 
     fn start(&mut self) -> ActionResult {
@@ -644,9 +658,15 @@ impl TempActivityTrait for EnvironmentRenderer {
 }
 
 impl TempActivityTrait for NeuralNet {
-    fn step_runtime(&mut self) -> ActionResult {
-        self.step();
-        Ok(())
+    type T = NeuralNet;
+
+    fn step_runtime(
+        instance: Arc<Mutex<Self::T>>,
+    ) -> impl std::future::Future<Output = ActionResult> + Send {
+        async move {
+            instance.lock().unwrap().step();
+            Ok(())
+        }
     }
 
     fn start(&mut self) -> ActionResult {
@@ -665,9 +685,15 @@ impl TempActivityTrait for NeuralNet {
 }
 
 impl TempActivityTrait for EmergencyBraking {
-    fn step_runtime(&mut self) -> ActionResult {
-        self.step();
-        Ok(())
+    type T = EmergencyBraking;
+
+    fn step_runtime(
+        instance: Arc<Mutex<Self::T>>,
+    ) -> impl std::future::Future<Output = ActionResult> + Send {
+        async move {
+            instance.lock().unwrap().step();
+            Ok(())
+        }
     }
 
     fn start(&mut self) -> ActionResult {
@@ -686,11 +712,16 @@ impl TempActivityTrait for EmergencyBraking {
 }
 
 impl TempActivityTrait for BrakeController {
-    fn step_runtime(&mut self) -> ActionResult {
-        self.step();
-        Ok(())
-    }
+    type T = BrakeController;
 
+    fn step_runtime(
+        instance: Arc<Mutex<Self::T>>,
+    ) -> impl std::future::Future<Output = ActionResult> + Send {
+        async move {
+            instance.lock().unwrap().step();
+            Ok(())
+        }
+    }
     fn start(&mut self) -> ActionResult {
         self.startup();
         Ok(())
@@ -707,9 +738,15 @@ impl TempActivityTrait for BrakeController {
 }
 
 impl TempActivityTrait for LaneAssist {
-    fn step_runtime(&mut self) -> ActionResult {
-        self.step();
-        Ok(())
+    type T = LaneAssist;
+
+    fn step_runtime(
+        instance: Arc<Mutex<Self::T>>,
+    ) -> impl std::future::Future<Output = ActionResult> + Send {
+        async move {
+            instance.lock().unwrap().step();
+            Ok(())
+        }
     }
 
     fn start(&mut self) -> ActionResult {
@@ -728,8 +765,10 @@ impl TempActivityTrait for LaneAssist {
 }
 
 impl TempActivityTrait for SteeringController {
-    fn step_runtime(&mut self) -> ActionResult {
-        self.step();
+    type T = SteeringController;
+
+    async fn step_runtime(instance: Arc<Mutex<Self::T>>) -> ActionResult {
+        instance.lock().unwrap().step();
         Ok(())
     }
 
@@ -749,9 +788,15 @@ impl TempActivityTrait for SteeringController {
 }
 
 impl TempActivityTrait for Radar {
-    fn step_runtime(&mut self) -> ActionResult {
-        self.step();
-        Ok(())
+    type T = Radar;
+
+    fn step_runtime(
+        instance: Arc<Mutex<Self::T>>,
+    ) -> impl std::future::Future<Output = ActionResult> + Send {
+        async move {
+            instance.lock().unwrap().step();
+            Ok(())
+        }
     }
 
     fn start(&mut self) -> ActionResult {
@@ -770,9 +815,15 @@ impl TempActivityTrait for Radar {
 }
 
 impl TempActivityTrait for Camera {
-    fn step_runtime(&mut self) -> ActionResult {
-        self.step();
-        Ok(())
+    type T = Camera;
+
+    fn step_runtime(
+        instance: Arc<Mutex<Self::T>>,
+    ) -> impl std::future::Future<Output = ActionResult> + Send {
+        async move {
+            instance.lock().unwrap().step();
+            Ok(())
+        }
     }
 
     fn start(&mut self) -> ActionResult {
