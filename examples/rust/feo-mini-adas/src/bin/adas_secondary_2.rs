@@ -35,10 +35,10 @@ fn main() {
     // feo_logger::init(LevelFilter::Debug, true, true);
     // feo_tracing::init(feo_tracing::LevelFilter::TRACE);
 
-    let logger = TracingLibraryBuilder::new()
+    let mut logger = TracingLibraryBuilder::new()
         .global_log_level(Level::TRACE)
-        .trace_scope(TraceScope::AppScope)
-        .enable_tracing(true)
+        .enable_tracing(TraceScope::SystemScope)
+        .enable_logging(true)
         .build();
 
     logger.init_log_trace();

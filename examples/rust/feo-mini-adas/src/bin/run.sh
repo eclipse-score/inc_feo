@@ -6,6 +6,8 @@ BIN2="../../../../../target/debug/adas_secondary_1"
 BIN3="../../../../../target/debug/adas_secondary_2"
 
 tmux new-session -d -s $SESSION_NAME -n main
+
+
 tmux set-option -g mouse on
 
 tmux send-keys "$BIN1"
@@ -21,6 +23,7 @@ tmux send-keys "$BIN3"
 tmux select-layout even-vertical
 
 tmux bind -n C-q kill-session
+
 
 tmux attach-session -t $SESSION_NAME
 

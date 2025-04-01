@@ -32,10 +32,10 @@ const DEFAULT_FEO_CYCLE_TIME: Duration = Duration::from_secs(5);
 
 fn main() {
     //Initialize in LogMode with AppScope
-    let logger = TracingLibraryBuilder::new()
+    let mut logger = TracingLibraryBuilder::new()
         .global_log_level(Level::TRACE)
-        .trace_scope(TraceScope::AppScope)
-        .enable_tracing(true)
+        .enable_tracing(TraceScope::SystemScope)
+        .enable_logging(true)
         .build();
 
     logger.init_log_trace();
