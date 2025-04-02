@@ -161,7 +161,7 @@ impl GlobalOrchestrator {
 
         print!("{:?}", program);
 
-        program.run_n(2).await;
+        program.run_n(5).await;
 
         println!("Done");
     }
