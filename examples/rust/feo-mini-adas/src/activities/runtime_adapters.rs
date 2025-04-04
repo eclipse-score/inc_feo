@@ -55,6 +55,7 @@ impl LocalFeoAgent {
 
         program = program.with_startup_hook(self.create_startup());
         program = program.with_body(self.create_body());
+        program = program.with_shutdown_hook(self.create_shutdown());
 
         program.build()
     }
@@ -92,6 +93,25 @@ impl LocalFeoAgent {
         }
 
         concurrent
+    }
+
+    fn create_shutdown(&mut self) -> Box<dyn ActionTrait> {
+        let mut seq = Sequence::new()
+            .with_step(Sync::new(
+                format!("{}_waiting_shutdown", self.agent_name).as_str(),
+            ));
+
+        let mut concurrent = Concurrency::new();
+
+        // shutdown from all activities
+        for e in &mut self.activities {
+            concurrent = concurrent.with_branch(e.binded_hooks.2.take().unwrap());
+        }
+
+        seq = seq.with_step(concurrent);
+        seq.with_step(Trigger::new(
+            format!("{}_shutdown_done", self.agent_name).as_str(),
+        ))
     }
 }
 
@@ -150,11 +170,43 @@ impl GlobalOrchestrator {
         seq
     }
 
+    fn shutdown_agents(&self) -> Box<dyn ActionTrait> {
+        let mut top = Sequence::new_with_id(NamedId::new_static("shutdown_agents"));
+
+        for name in &self.agents {
+            let sub_sequence = Trigger::new(format!("{}_waiting_shutdown", name).as_str());
+
+            top = top.with_step(sub_sequence);
+        }
+
+        top
+    }
+
+    fn wait_shutdown_completed(&self) -> Box<dyn ActionTrait> {
+        let mut top = Sequence::new_with_id(NamedId::new_static("wait_shutdown_completed"));
+
+        for name in &self.agents {
+            let sub_sequence = Sync::new(format!("{}_shutdown_done", name).as_str());
+
+            top = top.with_step(sub_sequence);
+        }
+
+        top
+    }
+
+    fn shutdown(&self) -> Box<dyn ActionTrait> {
+        let seq = Sequence::new_with_id(NamedId::new_static("shutdown"))
+            .with_step(self.shutdown_agents())
+            .with_step(self.wait_shutdown_completed());
+
+        seq
+    }
+
     pub async fn run(&self, graph: &Vec<(Vec<&str>, bool)>) {
         let mut program = ProgramBuilder::new("main")
             .with_startup_hook(self.startup())
             .with_body(self.generate_body(&graph))
-            .with_shutdown_hook(Sequence::new())
+            .with_shutdown_hook(self.shutdown())
             .build();
 
         println!("Executor starts syncing with agents and execution of activity chain...");

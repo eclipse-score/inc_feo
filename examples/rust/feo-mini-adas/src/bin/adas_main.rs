@@ -21,7 +21,7 @@ use std::future::Future;
 const ENGINE_TASK_QUEUE_SIZE: usize = 256;
 const ENGINE_NUM_OF_WORKERS: usize = 3;
 
-const TRACE_SCOPE: TraceScope = TraceScope::AppScope;
+const TRACE_SCOPE: TraceScope = TraceScope::SystemScope;
 const LOG_LEVEL: Level = Level::TRACE;
 const LOG_ENABLE: bool = true;
 
@@ -75,5 +75,5 @@ fn main() {
     start(main_program);
 
     // Wait for some time to let the program to finish
-    std::thread::sleep(Duration::new(2000, 0));
+    std::thread::sleep(Duration::new(5, 0));
 }
