@@ -3,7 +3,7 @@ members = [
     "examples/rust/feo-mini-adas",
     "examples/rust/greeter",
     "examples/rust/greetings",
-    "examples/rust/mini-adas-recording",
+  #  "examples/rust/mini-adas-recording",
     "feo",
     "feo-log",
     "feo-logger",
@@ -16,6 +16,12 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
+
+async_runtime = { git = "https://github.com/qorix-group/qor-runtime.git" , branch = "feature/runtime" }
+orchestration = { git = "https://github.com/qorix-group/qor-runtime.git" , branch = "feature/runtime" }
+logging_tracing = { git = "https://github.com/qorix-group/qor-runtime.git" , branch = "feature/runtime" }
+foundation  = { git = "https://github.com/qorix-group/qor-runtime.git", branch = "feature/runtime"  }
+
 anyhow = "1.0.49"
 argh = "0.1.13"
 async-stream = "0.3.6"

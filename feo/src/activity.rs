@@ -40,7 +40,7 @@ impl Display for ActivityId {
 }
 
 /// Activity trait, to be implemented by any activity intended to run in a WorkerPool
-pub trait Activity {
+pub trait Activity: Send {
     /// Get the ID of the activity
     fn id(&self) -> ActivityId;
 
