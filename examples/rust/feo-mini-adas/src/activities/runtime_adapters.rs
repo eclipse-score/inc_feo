@@ -18,6 +18,9 @@ use std::{
     time::Duration,
 };
 
+use async_runtime::runtime::runtime::AsyncRuntime;
+use feo::{configuration::primary_agent::ActivityDependencies, prelude::ActivityId};
+use foundation::threading::thread_wait_barrier::{ThreadReadyNotifier, ThreadWaitBarrier};
 use orchestration::{
     prelude::*,
     program::{Program, ProgramBuilder},
@@ -33,7 +36,30 @@ pub struct ActivityDetails {
         Option<Box<dyn ActionTrait>>,
     ),
 
-    name: &'static str,
+    id: ActivityId,
+}
+
+pub struct ActivityDetailsBuilder {
+    data: Vec<ActivityDetails>,
+}
+
+impl ActivityDetailsBuilder {
+    pub fn new() -> Self {
+        Self { data: vec![] }
+    }
+
+    pub fn add_activity<T: 'static + Send + ActivityAdapterTrait<T = T>, U: FnMut() -> T>(
+        mut self,
+        mut builder: U,
+    ) -> Self {
+        let wrapped = Arc::new(Mutex::new(builder()));
+        self.data.push(activity_into_invokes(&wrapped));
+        self
+    }
+
+    pub fn build(self) -> Vec<ActivityDetails> {
+        self.data
+    }
 }
 
 ///
@@ -48,7 +74,7 @@ where
     let stop = Invoke::from_arc(obj.clone(), T::stop);
     ActivityDetails {
         binded_hooks: (Some(start), Some(step), Some(stop)),
-        name: obj.lock().unwrap().get_named_id(),
+        id: obj.lock().unwrap().get_act_id(),
     }
 }
 
@@ -58,13 +84,50 @@ where
 pub struct LocalFeoAgent {
     activities: Vec<ActivityDetails>,
     agent_name: &'static str,
+    app_name: &'static str,
 }
 
 impl LocalFeoAgent {
-    pub fn new(activities: Vec<ActivityDetails>, agent_name: &'static str) -> Self {
+    pub fn run_agent(
+        app_name: &'static str,
+        activities: Vec<ActivityDetails>,
+        agent_name: &'static str,
+        runtime: &mut AsyncRuntime,
+    ) {
+        // Since runtime `enter_engine` is now not blocking, we do it manually here.
+        let waiter = Arc::new(ThreadWaitBarrier::new(1));
+        let notifier = waiter.get_notifier().unwrap();
+
+        runtime
+            .enter_engine(
+                //
+                async move {
+                    let mut agent = LocalFeoAgent::new(app_name, activities, agent_name);
+                    let mut program = agent.create_program();
+
+                    info!("{:?}", program);
+
+                    program.run().await;
+                    info!("Finished");
+                    notifier.ready();
+                },
+            )
+            .unwrap_or_default();
+
+        waiter
+            .wait_for_all(Duration::new(2000, 0))
+            .unwrap_or_default();
+    }
+
+    pub fn new(
+        app_name: &'static str,
+        activities: Vec<ActivityDetails>,
+        agent_name: &'static str,
+    ) -> Self {
         Self {
             activities,
             agent_name,
+            app_name,
         }
     }
 
@@ -81,10 +144,10 @@ impl LocalFeoAgent {
 
     fn create_startup(&mut self) -> Box<dyn ActionTrait> {
         let mut seq = Sequence::new()
-            .with_step(Trigger::new(format!("{}_alive", self.agent_name).as_str()))
-            .with_step(Sync::new(
-                format!("{}_waiting_startup", self.agent_name).as_str(),
-            ));
+            .with_step(Trigger::new(
+                format!("{}/{}/alive", self.app_name, self.agent_name).as_str(),
+            ))
+            .with_step(Sync::new(format!("{}/startup", self.app_name).as_str()));
 
         let mut concurrent = Concurrency::new();
 
@@ -95,7 +158,7 @@ impl LocalFeoAgent {
 
         seq = seq.with_step(concurrent);
         seq.with_step(Trigger::new(
-            format!("{}_startup_done", self.agent_name).as_str(),
+            format!("{}/{}/startup_completed", self.app_name, self.agent_name).as_str(),
         ))
     }
 
@@ -105,9 +168,13 @@ impl LocalFeoAgent {
         for e in &mut self.activities {
             concurrent = concurrent.with_branch(
                 Sequence::new()
-                    .with_step(Sync::new(format!("{}_start", e.name).as_str()))
+                    .with_step(Sync::new(
+                        format!("{}/{}/step", self.app_name, e.id).as_str(),
+                    ))
                     .with_step(e.binded_hooks.1.take().unwrap())
-                    .with_step(Trigger::new(format!("{}_done", e.name).as_str())),
+                    .with_step(Trigger::new(
+                        format!("{}/{}/step_completed", self.app_name, e.id).as_str(),
+                    )),
             );
         }
 
@@ -115,9 +182,8 @@ impl LocalFeoAgent {
     }
 
     fn create_shutdown_notification(&mut self) -> Box<dyn ActionTrait> {
-        let seq = Sequence::new().with_step(Sync::new(
-            format!("{}_waiting_shutdown", self.agent_name).as_str(),
-        ));
+        let seq =
+            Sequence::new().with_step(Sync::new(format!("{}/shutdown", self.app_name).as_str()));
 
         seq
     }
@@ -134,7 +200,7 @@ impl LocalFeoAgent {
 
         seq = seq.with_step(concurrent);
         seq.with_step(Trigger::new(
-            format!("{}_shutdown_done", self.agent_name).as_str(),
+            format!("{}/{}/shutdown_completed", self.app_name, self.agent_name).as_str(),
         ))
     }
 }
@@ -145,14 +211,59 @@ impl LocalFeoAgent {
 pub struct GlobalOrchestrator {
     agents: Vec<String>,
     cycle: Duration,
+    app_name: &'static str,
 }
 
 impl GlobalOrchestrator {
-    pub fn new(agents: Vec<String>, cycle: Duration) -> Self {
-        Self { agents, cycle }
+    pub fn run_primary(
+        app_name: &'static str,
+        agents: Vec<String>,
+        cycle: Duration,
+        graph: ActivityDependencies,
+        local_activities: Vec<ActivityDetails>,
+        local_agent_name: &'static str,
+        runtime: &mut AsyncRuntime,
+    ) {
+        // Since runtime `enter_engine` is now not blocking, we do it manually here.
+        let waiter = Arc::new(ThreadWaitBarrier::new(1));
+        let notifier = waiter.get_notifier().unwrap();
+
+        runtime
+            .enter_engine(
+                //
+                async move {
+                    let local_agent_program = async_runtime::spawn(async move {
+                        let mut agent =
+                            LocalFeoAgent::new(app_name, local_activities, local_agent_name);
+                        let mut program = agent.create_program();
+
+                        program.run().await;
+                        info!("Finished local program");
+                    });
+
+                    let global_orch = GlobalOrchestrator::new(app_name, agents, cycle);
+                    global_orch.run(&graph).await;
+
+                    local_agent_program.await;
+                    notifier.ready();
+                },
+            )
+            .unwrap_or_default();
+
+        waiter
+            .wait_for_all(Duration::new(2000, 0))
+            .unwrap_or_default();
     }
 
-    pub async fn run(&self, graph: &Vec<(Vec<&str>, bool)>) {
+    pub fn new(app_name: &'static str, agents: Vec<String>, cycle: Duration) -> Self {
+        Self {
+            agents,
+            cycle,
+            app_name,
+        }
+    }
+
+    pub async fn run(&self, graph: &ActivityDependencies) {
         let mut program = ProgramBuilder::new("main")
             .with_startup_hook(self.startup())
             .with_body(self.generate_body(&graph))
@@ -173,7 +284,7 @@ impl GlobalOrchestrator {
         let mut top = Concurrency::new_with_id(NamedId::new_static("sync_to_agents"));
 
         for name in &self.agents {
-            let sub_sequence = Sync::new(format!("{}_alive", name).as_str());
+            let sub_sequence = Sync::new(format!("{}/{}/alive", self.app_name, name).as_str());
 
             top = top.with_branch(sub_sequence);
         }
@@ -182,22 +293,16 @@ impl GlobalOrchestrator {
     }
 
     fn release_agents(&self) -> Box<dyn ActionTrait> {
-        let mut top = Sequence::new_with_id(NamedId::new_static("release_agents"));
-
-        for name in &self.agents {
-            let sub_sequence = Trigger::new(format!("{}_waiting_startup", name).as_str());
-
-            top = top.with_step(sub_sequence);
-        }
-
-        top
+        Sequence::new_with_id(NamedId::new_static("release_agents"))
+            .with_step(Trigger::new(format!("{}/startup", self.app_name).as_str()))
     }
 
     fn wait_startup_completed(&self) -> Box<dyn ActionTrait> {
         let mut top = Sequence::new_with_id(NamedId::new_static("wait_startup_completed"));
 
         for name in &self.agents {
-            let sub_sequence = Sync::new(format!("{}_startup_done", name).as_str());
+            let sub_sequence =
+                Sync::new(format!("{}/{}/startup_completed", self.app_name, name).as_str());
 
             top = top.with_step(sub_sequence);
         }
@@ -215,22 +320,16 @@ impl GlobalOrchestrator {
     }
 
     fn shutdown_agents(&self) -> Box<dyn ActionTrait> {
-        let mut top = Sequence::new_with_id(NamedId::new_static("shutdown_agents"));
-
-        for name in &self.agents {
-            let sub_sequence = Trigger::new(format!("{}_waiting_shutdown", name).as_str());
-
-            top = top.with_step(sub_sequence);
-        }
-
-        top
+        Sequence::new_with_id(NamedId::new_static("shutdown_agents"))
+            .with_step(Trigger::new(format!("{}/shutdown", self.app_name).as_str()))
     }
 
     fn wait_shutdown_completed(&self) -> Box<dyn ActionTrait> {
         let mut top = Sequence::new_with_id(NamedId::new_static("wait_shutdown_completed"));
 
         for name in &self.agents {
-            let sub_sequence = Sync::new(format!("{}_shutdown_done", name).as_str());
+            let sub_sequence =
+                Sync::new(format!("{}/{}/shutdown_completed", self.app_name, name).as_str());
 
             top = top.with_step(sub_sequence);
         }
@@ -255,43 +354,37 @@ impl GlobalOrchestrator {
     }
 
     // Converts a dependency graph into an execution sequence.
-    fn generate_body(&self, execution_structure: &Vec<(Vec<&str>, bool)>) -> Box<dyn ActionTrait> {
-        let mut sequence = Sequence::new(); // The overall execution sequence
-        let mut concurrency_action = Concurrency::new();
+    fn generate_body(&self, graph: &ActivityDependencies) -> Box<dyn ActionTrait> {
+        let mut body = Concurrency::new();
 
-        let mut concurrent_block_added = false;
-
-        for task_group in execution_structure {
-            if task_group.1 == false {
-                // Add the concurrency block into sequence
-                if concurrent_block_added {
-                    sequence = sequence.with_step(concurrency_action);
-                    concurrency_action = Concurrency::new();
-                    concurrent_block_added = false;
-                }
-                // sequence
-                let action = self.generate_step(task_group.0.clone());
-                sequence = sequence.with_step(action);
-            } else {
-                // concurrency block
-                let action = self.generate_step(task_group.0.clone());
-                concurrency_action = concurrency_action.with_branch(action);
-                concurrent_block_added = true;
+        // For now simply mapping, without optimization
+        for node in graph {
+            if node.1.is_empty() {
+                body = body.with_branch(self.generate_step(node.0));
+                continue;
             }
+
+            let mut s = Sequence::new();
+            for dep in node.1 {
+                s = s.with_step(Sync::new(
+                    format!("{}/{}/step_completed", self.app_name, dep).as_str(),
+                ));
+            }
+
+            s = s.with_step(self.generate_step(node.0));
+
+            body = body.with_branch(s);
         }
-        if concurrent_block_added {
-            sequence = sequence.with_step(concurrency_action);
-        }
-        sequence
+        body
     }
 
-    fn generate_step(&self, names: Vec<&str>) -> Box<dyn ActionTrait> {
-        let mut sequence = Sequence::new();
-        for name in names {
-            sequence = sequence
-                .with_step(Trigger::new(format!("{}_start", name).as_str()))
-                .with_step(Sync::new(format!("{}_done", name).as_str()));
-        }
-        return sequence;
+    fn generate_step(&self, id: &ActivityId) -> Box<dyn ActionTrait> {
+        Sequence::new()
+            .with_step(Trigger::new(
+                format!("{}/{}/step", self.app_name, id).as_str(),
+            ))
+            .with_step(Sync::new(
+                format!("{}/{}/step_completed", self.app_name, id).as_str(),
+            ))
     }
 }

@@ -194,7 +194,7 @@ pub trait ActivityAdapterTrait: Send {
 
     fn stop(&mut self) -> ActionResult;
 
-    fn get_named_id(&self) -> &'static str;
+    fn get_act_id(&self) -> ActivityId;
 }
 
 impl NeuralNet {
@@ -652,8 +652,8 @@ impl ActivityAdapterTrait for EnvironmentRenderer {
         Ok(())
     }
 
-    fn get_named_id(&self) -> &'static str {
-        ENV_READER_ACTIVITY_NAME
+    fn get_act_id(&self) -> ActivityId {
+        self.activity_id
     }
 }
 
@@ -679,8 +679,8 @@ impl ActivityAdapterTrait for NeuralNet {
         Ok(())
     }
 
-    fn get_named_id(&self) -> &'static str {
-        NEURAL_NET_ACTIVITY_NAME
+    fn get_act_id(&self) -> ActivityId {
+        self.activity_id
     }
 }
 
@@ -706,8 +706,8 @@ impl ActivityAdapterTrait for EmergencyBraking {
         Ok(())
     }
 
-    fn get_named_id(&self) -> &'static str {
-        EMG_BREAK_ACTIVITY_NAME
+    fn get_act_id(&self) -> ActivityId {
+        self.activity_id
     }
 }
 
@@ -732,8 +732,8 @@ impl ActivityAdapterTrait for BrakeController {
         Ok(())
     }
 
-    fn get_named_id(&self) -> &'static str {
-        BREAK_CTL_ACTIVITY_NAME
+    fn get_act_id(&self) -> ActivityId {
+        self.activity_id
     }
 }
 
@@ -759,8 +759,8 @@ impl ActivityAdapterTrait for LaneAssist {
         Ok(())
     }
 
-    fn get_named_id(&self) -> &'static str {
-        LANE_ASST_ACTIVITY_NAME
+    fn get_act_id(&self) -> ActivityId {
+        self.activity_id
     }
 }
 
@@ -782,8 +782,8 @@ impl ActivityAdapterTrait for SteeringController {
         Ok(())
     }
 
-    fn get_named_id(&self) -> &'static str {
-        STR_CTL_ACTIVITY_NAME
+    fn get_act_id(&self) -> ActivityId {
+        self.activity_id
     }
 }
 
@@ -809,8 +809,8 @@ impl ActivityAdapterTrait for Radar {
         Ok(())
     }
 
-    fn get_named_id(&self) -> &'static str {
-        RADAR_ACTIVITY_NAME
+    fn get_act_id(&self) -> ActivityId {
+        self.activity_id
     }
 }
 
@@ -836,20 +836,7 @@ impl ActivityAdapterTrait for Camera {
         Ok(())
     }
 
-    fn get_named_id(&self) -> &'static str {
-        CAM_ACTIVITY_NAME
+    fn get_act_id(&self) -> ActivityId {
+        self.activity_id
     }
 }
-
-pub const CAM_ACTIVITY_NAME: &'static str = "cam_activity";
-pub const RADAR_ACTIVITY_NAME: &'static str = "radar_activity";
-pub const NEURAL_NET_ACTIVITY_NAME: &'static str = "neuralnet_activity";
-pub const ENV_READER_ACTIVITY_NAME: &'static str = "env_reader_activity";
-pub const EMG_BREAK_ACTIVITY_NAME: &'static str = "emg_break_activity";
-pub const BREAK_CTL_ACTIVITY_NAME: &'static str = "break_ctl_activity";
-pub const LANE_ASST_ACTIVITY_NAME: &'static str = "lane_asst_activity";
-pub const STR_CTL_ACTIVITY_NAME: &'static str = "str_ctl_activity";
-
-pub const PRIMARY_NAME: &'static str = "primary_agent";
-pub const SECONDARY1_NAME: &'static str = "secondary1_agent";
-pub const SECONDARY2_NAME: &'static str = "secondary2_agent";

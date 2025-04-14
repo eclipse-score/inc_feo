@@ -145,7 +145,7 @@ dependencies = [
 [[package]]
 name = "async_runtime"
 version = "0.1.0"
-source = "git+https://github.com/qorix-group/qor-runtime.git?branch=feature%2Fruntime#f3ddc7129ff98d40227b9f84e5009299fa6a8d44"
+source = "git+https://github.com/qorix-group/qor-runtime.git?rev=cfb01d7c55fe9021dd5539660167792826b88182#cfb01d7c55fe9021dd5539660167792826b88182"
 dependencies = [
  "foundation",
  "iceoryx2-pal-concurrency-sync",
@@ -642,7 +642,7 @@ checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 [[package]]
 name = "foundation"
 version = "0.1.0"
-source = "git+https://github.com/qorix-group/qor-runtime.git?branch=feature%2Fruntime#f3ddc7129ff98d40227b9f84e5009299fa6a8d44"
+source = "git+https://github.com/qorix-group/qor-runtime.git?rev=cfb01d7c55fe9021dd5539660167792826b88182#cfb01d7c55fe9021dd5539660167792826b88182"
 dependencies = [
  "iceoryx2-bb-container",
  "iceoryx2-bb-derive-macros",
@@ -1222,7 +1222,7 @@ dependencies = [
 [[package]]
 name = "logging_tracing"
 version = "0.1.0"
-source = "git+https://github.com/qorix-group/qor-runtime.git?branch=feature%2Fruntime#f3ddc7129ff98d40227b9f84e5009299fa6a8d44"
+source = "git+https://github.com/qorix-group/qor-runtime.git?rev=cfb01d7c55fe9021dd5539660167792826b88182#cfb01d7c55fe9021dd5539660167792826b88182"
 dependencies = [
  "tracing",
  "tracing-appender",
@@ -1341,7 +1341,7 @@ checksum = "1261fe7e33c73b354eab43b1273a57c8f967d0391e80353e51f764ac02cf6775"
 [[package]]
 name = "orchestration"
 version = "0.1.0"
-source = "git+https://github.com/qorix-group/qor-runtime.git?branch=feature%2Fruntime#f3ddc7129ff98d40227b9f84e5009299fa6a8d44"
+source = "git+https://github.com/qorix-group/qor-runtime.git?rev=cfb01d7c55fe9021dd5539660167792826b88182#cfb01d7c55fe9021dd5539660167792826b88182"
 dependencies = [
  "async_runtime",
  "foundation",
@@ -2160,7 +2160,7 @@ dependencies = [
 [[package]]
 name = "tracing-perfetto-sdk-layer"
 version = "0.12.0"
-source = "git+https://github.com/qorix-group/tracing-perfetto-sdk.git?branch=qor_adaptations#62759e172c1cdec2ad8fad18a568a6b994316b35"
+source = "git+https://github.com/qorix-group/tracing-perfetto-sdk.git?branch=qor_adaptations#1ac565c2bff2715a3e34714e5777e28572c6e6d6"
 dependencies = [
  "bytes",
  "cxx",
@@ -2180,7 +2180,7 @@ dependencies = [
 [[package]]
 name = "tracing-perfetto-sdk-schema"
 version = "0.12.0"
-source = "git+https://github.com/qorix-group/tracing-perfetto-sdk.git?branch=qor_adaptations#62759e172c1cdec2ad8fad18a568a6b994316b35"
+source = "git+https://github.com/qorix-group/tracing-perfetto-sdk.git?branch=qor_adaptations#1ac565c2bff2715a3e34714e5777e28572c6e6d6"
 dependencies = [
  "anyhow",
  "prost",
@@ -2191,10 +2191,11 @@ dependencies = [
 [[package]]
 name = "tracing-perfetto-sdk-sys"
 version = "0.12.0"
-source = "git+https://github.com/qorix-group/tracing-perfetto-sdk.git?branch=qor_adaptations#62759e172c1cdec2ad8fad18a568a6b994316b35"
+source = "git+https://github.com/qorix-group/tracing-perfetto-sdk.git?branch=qor_adaptations#1ac565c2bff2715a3e34714e5777e28572c6e6d6"
 dependencies = [
  "anyhow",
  "bytes",
+ "cc",
  "cxx",
  "cxx-build",
 ]
