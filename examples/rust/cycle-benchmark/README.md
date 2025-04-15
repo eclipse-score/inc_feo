@@ -9,8 +9,7 @@ Adapt the config file `config/cycle_bench.json` to reflect your desired setup. T
 instances of the application in different terminals:
 
 ```sh
-# Use 400ms cycle time
-cargo run --release --bin cycle_bench <AGENT_ID> [TARGET_CYCLE_TIME]
+cargo run --release --bin cycle_bench -- <AGENT_ID> [TARGET_CYCLE_TIME]
 ```
 
 The first command line parameter specifies the agent ID of the process to be started. The second parameter defines
