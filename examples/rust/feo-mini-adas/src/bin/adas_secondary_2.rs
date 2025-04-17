@@ -11,10 +11,8 @@ use feo::prelude::*;
 use feo_log::{info, LevelFilter};
 use feo_mini_adas::{
     activities::{
-        components::{
-            BrakeController, EmergencyBraking, LaneAssist, SteeringController, SECONDARY2_NAME,
-        },
-        runtime_adapters::{activity_into_invokes, LocalFeoAgent},
+        components::{BrakeController, EmergencyBraking, LaneAssist, SteeringController},
+        runtime_adapters::{activity_into_invokes, ActivityDetailsBuilder, LocalFeoAgent},
     },
     config::{self, *},
 };
@@ -44,8 +42,6 @@ fn main() {
 
     logger.init_log_trace();
 
-    info!("Starting agent {AGENT_ID}");
-
     let mut runtime = AsyncRuntimeBuilder::new()
         .with_engine(
             ExecutionEngineBuilder::new()
@@ -60,49 +56,14 @@ fn main() {
         .unwrap()
         .create_polling_thread();
 
-    // Since runtime `enter_engine` is now not blocking, we do it manually here.
-    let waiter = Arc::new(ThreadWaitBarrier::new(1));
-    let notifier = waiter.get_notifier().unwrap();
-
-    runtime
-        .enter_engine(async {
-            let emg_brk_act = Arc::new(Mutex::new(EmergencyBraking::build(
-                5.into(),
-                TOPIC_INFERRED_SCENE,
-                TOPIC_CONTROL_BRAKES,
-            )));
-            let brk_ctr_act = Arc::new(Mutex::new(BrakeController::build(
-                6.into(),
-                TOPIC_CONTROL_BRAKES,
-            )));
-            let lane_asst_act = Arc::new(Mutex::new(LaneAssist::build(
-                7.into(),
-                TOPIC_INFERRED_SCENE,
-                TOPIC_CONTROL_STEERING,
-            )));
-
-            let str_ctr_act = Arc::new(Mutex::new(SteeringController::build(
-                8.into(),
-                TOPIC_CONTROL_STEERING,
-            )));
-
-            let mut acts = Vec::new();
-            acts.push(activity_into_invokes(&emg_brk_act));
-            acts.push(activity_into_invokes(&brk_ctr_act));
-            acts.push(activity_into_invokes(&lane_asst_act));
-            acts.push(activity_into_invokes(&str_ctr_act));
-
-            let mut agent = LocalFeoAgent::new(acts, SECONDARY2_NAME);
-            let mut program = agent.create_program();
-            info!("{:?}", program);
-
-            program.run().await;
-            info!("Finished");
-            notifier.ready();
+    let activities = ActivityDetailsBuilder::new()
+        .add_activity(|| {
+            EmergencyBraking::build(4.into(), TOPIC_INFERRED_SCENE, TOPIC_CONTROL_BRAKES)
         })
-        .unwrap_or_default();
+        .add_activity(|| BrakeController::build(6.into(), TOPIC_CONTROL_BRAKES))
+        .add_activity(|| LaneAssist::build(5.into(), TOPIC_INFERRED_SCENE, TOPIC_CONTROL_STEERING))
+        .add_activity(|| SteeringController::build(7.into(), TOPIC_CONTROL_STEERING))
+        .build();
 
-    waiter
-        .wait_for_all(Duration::new(2000, 0))
-        .unwrap_or_default();
+    LocalFeoAgent::run_agent(APPLICATION_NAME, activities, SECONDARY2_NAME, &mut runtime)
 }

@@ -10,12 +10,10 @@ use async_runtime::scheduler::execution_engine::ExecutionEngineBuilder;
 use feo::com::TopicHandle;
 use feo_mini_adas::activities::components::{
     BrakeController, Camera, EmergencyBraking, EnvironmentRenderer, LaneAssist, NeuralNet, Radar,
-    SteeringController, BREAK_CTL_ACTIVITY_NAME, CAM_ACTIVITY_NAME, EMG_BREAK_ACTIVITY_NAME,
-    ENV_READER_ACTIVITY_NAME, LANE_ASST_ACTIVITY_NAME, NEURAL_NET_ACTIVITY_NAME, PRIMARY_NAME,
-    RADAR_ACTIVITY_NAME, SECONDARY1_NAME, SECONDARY2_NAME, STR_CTL_ACTIVITY_NAME,
+    SteeringController,
 };
 use feo_mini_adas::activities::runtime_adapters::{
-    activity_into_invokes, GlobalOrchestrator, LocalFeoAgent,
+    activity_into_invokes, ActivityDetailsBuilder, GlobalOrchestrator, LocalFeoAgent,
 };
 use feo_mini_adas::config::*;
 use feo_time::Duration;
@@ -23,6 +21,7 @@ use foundation::threading::thread_wait_barrier::*;
 use logging_tracing::prelude::*;
 use logging_tracing::{TraceScope, TracingLibrary, TracingLibraryBuilder};
 use orchestration::prelude::Event;
+use orchestration::program::ProgramBuilder;
 use std::sync::{Arc, Mutex};
 
 // ****************************************************************** //
@@ -32,8 +31,8 @@ use std::sync::{Arc, Mutex};
 const ENGINE_TASK_QUEUE_SIZE: usize = 256;
 const ENGINE_NUM_OF_WORKERS: usize = 3;
 
-const TRACE_SCOPE: TraceScope = TraceScope::AppScope;
-const LOG_LEVEL: Level = Level::DEBUG;
+const TRACE_SCOPE: TraceScope = TraceScope::SystemScope;
+const LOG_LEVEL: Level = Level::INFO;
 const LOG_ENABLE: bool = true;
 
 const DEFAULT_FEO_CYCLE_TIME: Duration = Duration::from_secs(1);
@@ -50,22 +49,12 @@ async fn main_program() {
         SECONDARY2_NAME.to_string(),
     ];
 
-    // VEC of activitie(s) which has to be executed in sequence, TRUE: if the activitie(s) can be executed concurrently.
-    let execution_structure = vec![
-        (vec![CAM_ACTIVITY_NAME], true),
-        (vec![RADAR_ACTIVITY_NAME], true),
-        (vec![NEURAL_NET_ACTIVITY_NAME], false),
-        (vec![ENV_READER_ACTIVITY_NAME], true),
-        (vec![EMG_BREAK_ACTIVITY_NAME, BREAK_CTL_ACTIVITY_NAME], true),
-        (vec![LANE_ASST_ACTIVITY_NAME, STR_CTL_ACTIVITY_NAME], true),
-    ];
-
     let primary_agent_program = async_runtime::spawn(primary_agent_program());
     let secondary_1_agent_program = async_runtime::spawn(secondary_1_agent_program());
     let secondary_2_agent_program = async_runtime::spawn(secondary_2_agent_program());
 
-    let global_orch = GlobalOrchestrator::new(agents, DEFAULT_FEO_CYCLE_TIME);
-    global_orch.run(&execution_structure).await;
+    let global_orch = GlobalOrchestrator::new(APPLICATION_NAME, agents, DEFAULT_FEO_CYCLE_TIME);
+    global_orch.run(&activity_dependencies()).await;
     primary_agent_program.await;
     secondary_1_agent_program.await;
     secondary_2_agent_program.await;
@@ -74,14 +63,12 @@ async fn main_program() {
 async fn primary_agent_program() {
     info!("Starting primary agent {PRIMARY_NAME}. Waiting for connections",);
 
-    let cam_act = Arc::new(Mutex::new(Camera::build(1.into(), TOPIC_CAMERA_FRONT)));
-    let radar_act = Arc::new(Mutex::new(Radar::build(2.into(), TOPIC_RADAR_FRONT)));
+    let activities = ActivityDetailsBuilder::new()
+        .add_activity(|| Radar::build(1.into(), TOPIC_RADAR_FRONT))
+        .add_activity(|| Camera::build(0.into(), TOPIC_CAMERA_FRONT))
+        .build();
 
-    let mut acts = Vec::new();
-    acts.push(activity_into_invokes(&cam_act));
-    acts.push(activity_into_invokes(&radar_act));
-
-    let mut agent = LocalFeoAgent::new(acts, PRIMARY_NAME);
+    let mut agent = LocalFeoAgent::new(APPLICATION_NAME, activities, PRIMARY_NAME);
     let mut program = agent.create_program();
 
     program.run().await;
@@ -90,23 +77,19 @@ async fn primary_agent_program() {
 async fn secondary_1_agent_program() {
     info!("Starting secondary_1 agent {SECONDARY1_NAME}",);
 
-    let neural_net_act = Arc::new(Mutex::new(NeuralNet::build_val(
-        3.into(),
-        TOPIC_CAMERA_FRONT,
-        TOPIC_RADAR_FRONT,
-        TOPIC_INFERRED_SCENE,
-    )));
+    let activities = ActivityDetailsBuilder::new()
+        .add_activity(|| EnvironmentRenderer::build(3.into(), TOPIC_INFERRED_SCENE))
+        .add_activity(|| {
+            NeuralNet::build_val(
+                2.into(),
+                TOPIC_CAMERA_FRONT,
+                TOPIC_RADAR_FRONT,
+                TOPIC_INFERRED_SCENE,
+            )
+        })
+        .build();
 
-    let environ_renderer_act = Arc::new(Mutex::new(EnvironmentRenderer::build(
-        4.into(),
-        TOPIC_INFERRED_SCENE,
-    )));
-
-    let mut acts = Vec::new();
-    acts.push(activity_into_invokes(&neural_net_act));
-    acts.push(activity_into_invokes(&environ_renderer_act));
-
-    let mut agent = LocalFeoAgent::new(acts, SECONDARY1_NAME);
+    let mut agent = LocalFeoAgent::new(APPLICATION_NAME, activities, SECONDARY1_NAME);
     let mut program = agent.create_program();
 
     program.run().await;
@@ -114,34 +97,16 @@ async fn secondary_1_agent_program() {
 
 async fn secondary_2_agent_program() {
     info!("Starting secondary_2 agent {SECONDARY2_NAME}",);
+    let activities = ActivityDetailsBuilder::new()
+        .add_activity(|| {
+            EmergencyBraking::build(4.into(), TOPIC_INFERRED_SCENE, TOPIC_CONTROL_BRAKES)
+        })
+        .add_activity(|| BrakeController::build(6.into(), TOPIC_CONTROL_BRAKES))
+        .add_activity(|| LaneAssist::build(5.into(), TOPIC_INFERRED_SCENE, TOPIC_CONTROL_STEERING))
+        .add_activity(|| SteeringController::build(7.into(), TOPIC_CONTROL_STEERING))
+        .build();
 
-    let emg_brk_act = Arc::new(Mutex::new(EmergencyBraking::build(
-        5.into(),
-        TOPIC_INFERRED_SCENE,
-        TOPIC_CONTROL_BRAKES,
-    )));
-    let brk_ctr_act = Arc::new(Mutex::new(BrakeController::build(
-        6.into(),
-        TOPIC_CONTROL_BRAKES,
-    )));
-    let lane_asst_act = Arc::new(Mutex::new(LaneAssist::build(
-        7.into(),
-        TOPIC_INFERRED_SCENE,
-        TOPIC_CONTROL_STEERING,
-    )));
-
-    let str_ctr_act = Arc::new(Mutex::new(SteeringController::build(
-        8.into(),
-        TOPIC_CONTROL_STEERING,
-    )));
-
-    let mut acts = Vec::new();
-    acts.push(activity_into_invokes(&emg_brk_act));
-    acts.push(activity_into_invokes(&brk_ctr_act));
-    acts.push(activity_into_invokes(&lane_asst_act));
-    acts.push(activity_into_invokes(&str_ctr_act));
-
-    let mut agent = LocalFeoAgent::new(acts, SECONDARY2_NAME);
+    let mut agent = LocalFeoAgent::new(APPLICATION_NAME, activities, SECONDARY2_NAME);
     let mut program = agent.create_program();
 
     program.run().await;

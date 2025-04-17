@@ -6,9 +6,8 @@ use async_runtime::{
     runtime::{runtime::AsyncRuntimeBuilder, *},
     scheduler::execution_engine::ExecutionEngineBuilder,
 };
-use feo_mini_adas::activities::{
-    components::SECONDARY1_NAME,
-    runtime_adapters::{activity_into_invokes, LocalFeoAgent},
+use feo_mini_adas::activities::runtime_adapters::{
+    activity_into_invokes, ActivityDetailsBuilder, LocalFeoAgent,
 };
 use foundation::threading::thread_wait_barrier::*;
 
@@ -43,13 +42,11 @@ fn main() {
 
     logger.init_log_trace();
 
-    info!("Starting agent {AGENT_ID}");
-
     let mut runtime = AsyncRuntimeBuilder::new()
         .with_engine(
             ExecutionEngineBuilder::new()
                 .task_queue_size(256)
-                .workers(2),
+                .workers(1),
         )
         .build()
         .unwrap();
@@ -59,38 +56,17 @@ fn main() {
         .unwrap()
         .create_polling_thread();
 
-    // Since runtime `enter_engine` is now not blocking, we do it manually here.
-    let waiter = Arc::new(ThreadWaitBarrier::new(1));
-    let notifier = waiter.get_notifier().unwrap();
-
-    runtime
-        .enter_engine(async {
-            let neural_net_act = Arc::new(Mutex::new(NeuralNet::build_val(
-                3.into(),
+    let activities = ActivityDetailsBuilder::new()
+        .add_activity(|| EnvironmentRenderer::build(3.into(), TOPIC_INFERRED_SCENE))
+        .add_activity(|| {
+            NeuralNet::build_val(
+                2.into(),
                 TOPIC_CAMERA_FRONT,
                 TOPIC_RADAR_FRONT,
                 TOPIC_INFERRED_SCENE,
-            )));
-
-            let environ_renderer_act = Arc::new(Mutex::new(EnvironmentRenderer::build(
-                4.into(),
-                TOPIC_INFERRED_SCENE,
-            )));
-
-            let mut acts = Vec::new();
-            acts.push(activity_into_invokes(&neural_net_act));
-            acts.push(activity_into_invokes(&environ_renderer_act));
-
-            let mut agent = LocalFeoAgent::new(acts, SECONDARY1_NAME);
-            let mut program = agent.create_program();
-
-            program.run().await;
-            info!("Finished");
-            notifier.ready();
+            )
         })
-        .unwrap_or_default();
+        .build();
 
-    waiter
-        .wait_for_all(Duration::new(2000, 0))
-        .unwrap_or_default();
+    LocalFeoAgent::run_agent(APPLICATION_NAME, activities, SECONDARY1_NAME, &mut runtime)
 }

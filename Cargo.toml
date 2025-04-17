@@ -15,12 +15,20 @@ members = [
 ]
 resolver = "2"
 
+
 [workspace.dependencies]
 
-async_runtime = { git = "https://github.com/qorix-group/qor-runtime.git" , branch = "feature/runtime" }
-orchestration = { git = "https://github.com/qorix-group/qor-runtime.git" , branch = "feature/runtime" }
-logging_tracing = { git = "https://github.com/qorix-group/qor-runtime.git" , branch = "feature/runtime" }
-foundation  = { git = "https://github.com/qorix-group/qor-runtime.git", branch = "feature/runtime"  }
+async_runtime = { git = "https://github.com/qorix-group/qor-runtime.git" , rev  = "cfb01d7c55fe9021dd5539660167792826b88182" }
+orchestration = { git = "https://github.com/qorix-group/qor-runtime.git" , rev  = "cfb01d7c55fe9021dd5539660167792826b88182" }
+logging_tracing = { git = "https://github.com/qorix-group/qor-runtime.git" , rev  = "cfb01d7c55fe9021dd5539660167792826b88182" }
+foundation  = { git = "https://github.com/qorix-group/qor-runtime.git", rev  = "cfb01d7c55fe9021dd5539660167792826b88182"  }
+
+
+#async_runtime = { path = "../performance_stack_rust/async_runtime" }
+#orchestration = { path = "../performance_stack_rust/orchestration" }
+#logging_tracing = { path = "../performance_stack_rust/logging_tracing" }
+#foundation = { path = "../performance_stack_rust/foundation" }
+
 
 anyhow = "1.0.49"
 argh = "0.1.13"
