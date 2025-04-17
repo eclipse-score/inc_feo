@@ -1,5 +1,9 @@
 # score-feo
 
+## Disclaimer
+This is port of FEO for `qor-runtime`. Currently, this builds only with `cargo build` as there are some issues 
+with integration for `bazel` due to using native perfetto sdk as tracing for system events. This is WIP.
+
 ## Rust setup
 
 You can build the Rust code both with `bazel` and with `cargo`.
