@@ -5,9 +5,9 @@
 use crate::record::{OwnedRecord, Record};
 use console::{style, Color, StyledObject};
 use core::str;
+use core::sync::atomic::{self, AtomicUsize, Ordering};
 use feo_log::Level;
 use feo_time::SystemTime;
-use std::sync::atomic::{self, AtomicUsize, Ordering};
 use time::format_description::FormatItem;
 use time::macros::format_description;
 

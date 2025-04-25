@@ -42,7 +42,7 @@ bazel query //...
 Run example rust binary
 
 ```sh
-bazel run //examples/rust/greeter:greeter_rust
+bazel run //examples/rust/mini-adas:adas_primary
 ```
 
 [bazelisk]: https://github.com/bazelbuild/bazelisk

@@ -2,8 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use core::time;
 use feo_log::{error, log, warn, Level, LevelFilter};
-use std::{thread, time};
+use std::thread;
 
 fn main() {
     feo_logger::init(LevelFilter::Trace, true, true);

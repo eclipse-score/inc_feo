@@ -1,0 +1,15 @@
+[package]
+name = "feo-com"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+feo-log = { workspace = true }
+iceoryx2 = { workspace = true, optional = true }
+nix = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
+
+[features]
+default = ["ipc_linux_shm"]
+ipc_iceoryx2 = ["dep:iceoryx2"]
+ipc_linux_shm = ["dep:nix", "dep:rand"]

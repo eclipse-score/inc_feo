@@ -1,0 +1,39 @@
+[package]
+name = "mini-adas"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+path = "src/bin/adas_deserializer.rs"
+name = "adas_deserializer"
+required-features = ["recording"]
+
+[[bin]]
+path = "src/bin/adas_recorder.rs"
+name = "adas_recorder"
+required-features = ["recording"]
+
+[dependencies]
+feo = { workspace = true }
+feo-com = { workspace = true }
+feo-log = { workspace = true }
+feo-logger = { workspace = true }
+feo-cpp-macros = { workspace = true }
+feo-time = { workspace = true }
+feo-tracing = { workspace = true }
+postcard = { workspace = true, features = ["experimental-derive"] }
+serde = { workspace = true, optional = true }
+
+[build-dependencies]
+feo-cpp-build = { workspace = true }
+
+[features]
+com_iox2 = ["feo-com/ipc_iceoryx2"]
+com_linux_shm = ["feo-com/ipc_linux_shm"]
+default = ["com_iox2", "signalling_relayed_tcp"]
+signalling_direct_mpsc = []
+signalling_direct_tcp = []
+signalling_direct_unix = []
+signalling_relayed_tcp = []
+signalling_relayed_unix = []
+recording = ["dep:serde", "feo/recording"]

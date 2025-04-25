@@ -1,4 +1,6 @@
-# Copyright 2025 Accenture
+# Copyright 2025 Accenture.
+#
+# SPDX-License-Identifier: Apache-2.0
 
 name: CI
 
@@ -61,11 +63,63 @@ jobs:
           sudo apt update
           sudo apt install -y clang
 
-      - run: cargo clippy --all-features
-
       - run: cargo fmt --check
 
-      - run: cargo build
+      - run: cargo clippy --workspace --all-features --exclude mini-adas -- -D warnings
+
+      - run: cargo build --workspace --all-features --exclude mini-adas
+
+  cargo-build-mini-adas:
+    name: Compile and check mini-adas with mutually exclusive features
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        com_type:
+          - com_iox2
+        signaling_type:
+          - signalling_direct_mpsc
+          - signalling_direct_tcp
+          - signalling_direct_unix
+          - signalling_relayed_tcp
+        recording:
+          - "--features recording"
+          - ""
+        exclude:
+          - signaling_type: signalling_direct_mpsc
+            recording: "--features recording"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.83.0
+          components: clippy, rustfmt
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Clang
+        run: |
+          sudo apt update
+          sudo apt install -y clang
+
+      - run: |
+          cargo clippy -p mini-adas \
+          --no-default-features \
+          --features ${{ matrix.com_type }} \
+          --features ${{ matrix.signaling_type }} \
+          ${{ matrix.recording }} \
+          -- -D warnings
+
+      - run: |
+          cargo build -p mini-adas \
+          --no-default-features \
+          --features ${{ matrix.com_type }} \
+          --features ${{ matrix.signaling_type }} \
+          ${{ matrix.recording }}
 
   cargo-miri:
     runs-on: ubuntu-latest

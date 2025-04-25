@@ -2,10 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::data::{TraceData, TracePacket, Value};
-use anyhow::{anyhow, bail, Error};
+use crate::data::{RecordData, RecordEventInfo, Thread, TraceRecord};
+use anyhow::{bail, Error};
 use feo_log::info;
 use perfetto_model as idl;
+use perfetto_model;
 use prost::Message as ProstMessage;
 use std::collections::HashMap;
 use std::io;
@@ -21,19 +22,31 @@ type TrackUuid = u64;
 struct Span {
     /// Thread group name in which the span was created.
     pid: u32,
+    /// thread in which the span was created
+    thread: Thread,
     /// Trace of the span.
     trace: idl::Trace,
-    /// Attributes of the span.
-    attributes: Value,
+    /// Name of the span.
+    name: String,
+    /// Additional attributes
+    info: RecordEventInfo,
 }
 
 impl Span {
     /// Create a new span.
-    fn new(pid: u32, trace: idl::Trace, attributes: Value) -> Self {
+    fn new(
+        pid: u32,
+        thread: Thread,
+        trace: idl::Trace,
+        name: String,
+        info: RecordEventInfo,
+    ) -> Self {
         Self {
             pid,
+            thread,
             trace,
-            attributes,
+            name,
+            info,
         }
     }
 }
@@ -69,60 +82,58 @@ impl<W: io::Write> Perfetto<W> {
         }
     }
 
-    pub fn on_packet(&mut self, message: TracePacket) -> Result<(), Error> {
+    pub fn on_packet(&mut self, message: TraceRecord) -> Result<(), Error> {
         let pid = message.process.id;
         let process = message.process;
         let thread = message.thread;
         let timestamp_nanos = message.timestamp.duration_since(UNIX_EPOCH)?.as_nanos() as u64;
 
-        // Map record to event. This is unfortunate not possible directly in the match bel
+        // Map record to event. This is unfortunately not possible directly in the match
         // below because the types of the fields differ.
         let data = match message.data {
-            TraceData::Record { id, event } => TraceData::Event {
-                parent_span: Some(id),
-                event,
+            RecordData::Record { span } => RecordData::Event {
+                parent_span: Some(span),
+                name: "".to_string(),
+                info: RecordEventInfo::default(),
             },
             data => data,
         };
 
         match data {
-            TraceData::Exec => (),
-            TraceData::Exit => {
+            RecordData::Exec => (),
+            RecordData::Exit => {
                 // Remove all spans that belong to the process
                 self.spans.retain(|_, span| span.pid != pid);
             }
-            TraceData::NewSpan { id, attributes } => {
+            RecordData::NewSpan { id, name, info } => {
                 let key = (pid, id);
                 assert!(!self.spans.contains_key(&key));
 
+                let thread = thread.expect("missing thread info in new span");
+
                 let trace = {
                     // There's the process, thread, and the span itself
-                    let mut packet = Vec::with_capacity(4);
-                    let thread = thread.expect("missing thread info in new span");
+                    let mut packet = Vec::with_capacity(5);
                     packet.push(self.process_descriptor(pid, process.name.as_deref()));
                     packet.push(self.thread_descriptor(pid, thread.id, thread.name.as_deref()));
                     idl::Trace { packet }
                 };
 
-                self.spans.insert(key, Span::new(pid, trace, attributes));
+                self.spans
+                    .insert(key, Span::new(pid, thread, trace, name, info));
             }
-            TraceData::EnterSpan { id } => {
+            RecordData::EnterSpan { id } => {
                 let sequence_id = self.sequence_id();
                 let Some(span) = self.spans.get_mut(&(pid, id)) else {
                     return Ok(());
                 };
 
-                let Some(tid) = thread.map(|t| t.id) else {
-                    bail!("missing thread info in enter span");
-                };
-                let span_name = metadata_name(&span.attributes);
-                let location = metadata_location(&span.attributes);
-                let debug_annotations = debug_annotations(&span.attributes);
-                let thread_track_uuid = tid;
+                let annotation = debug_annotation(span.info.name.clone(), span.info.value.clone());
+                let debug_annotations = debug_annotations(&[annotation]);
+                let thread_track_uuid = span.thread.id;
                 let event = create_event(
                     thread_track_uuid as u64,
-                    span_name,
-                    location,
+                    Some(span.name.as_str()),
                     debug_annotations,
                     Some(idl::track_event::Type::SliceBegin),
                 );
@@ -136,22 +147,18 @@ impl<W: io::Write> Perfetto<W> {
 
                 span.trace.packet.push(packet);
             }
-            TraceData::ExitSpan { id } => {
+            RecordData::ExitSpan { id } => {
                 let key = (pid, id);
                 let Some(mut span) = self.spans.remove(&key) else {
                     return Ok(());
                 };
-                let Some(tid) = thread.map(|t| t.id) else {
-                    return Err(anyhow!("missing thread info in exit span"));
-                };
 
-                let span_name = metadata_name(&span.attributes);
-                let location = metadata_location(&span.attributes);
-                let debug_annotations = debug_annotations(&span.attributes);
+                let thread = &span.thread;
+                let span_name = span.name.as_str();
+                let debug_annotations = None;
                 let event = create_event(
-                    tid as u64,
-                    span_name,
-                    location,
+                    thread.id as u64,
+                    Some(span_name),
                     debug_annotations,
                     Some(idl::track_event::Type::SliceEnd),
                 );
@@ -169,18 +176,20 @@ impl<W: io::Write> Perfetto<W> {
                 self.append(&span.trace)?;
             }
 
-            TraceData::Record { .. } => unreachable!(),
-            TraceData::Event { parent_span, event } => {
+            RecordData::Record { .. } => unreachable!(),
+            RecordData::Event {
+                parent_span,
+                name,
+                info,
+            } => {
                 let Some(tid) = thread.as_ref().map(|t| t.id) else {
                     bail!("missing thread info in exit span");
                 };
-                let name = metadata_name(&event);
-                let location = metadata_location(&event);
-                let debug_annotations = debug_annotations(&event);
+                let annotation = debug_annotation(info.name, info.value);
+                let debug_annotations = debug_annotations(&[annotation]);
                 let track_event = create_event(
                     tid as u64,
-                    name,
-                    location,
+                    Some(name.as_str()),
                     debug_annotations,
                     Some(idl::track_event::Type::Instant),
                 );
@@ -284,51 +293,15 @@ fn create_track_descriptor(
 fn create_event(
     track_uuid: u64,
     name: Option<&str>,
-    location: Option<(&str, u32)>,
     debug_annotations: Option<DebugAnnotations>,
     r#type: Option<idl::track_event::Type>,
 ) -> idl::TrackEvent {
-    let location = location.map(|(file, line)| {
-        let source_location = perfetto_model::SourceLocation {
-            file_name: Some(file.to_owned()),
-            line_number: Some(line),
-            ..Default::default()
-        };
-        idl::track_event::SourceLocationField::SourceLocation(source_location)
-    });
-
     perfetto_model::TrackEvent {
         r#type: r#type.map(Into::into),
         track_uuid: Some(track_uuid),
         name_field: name.map(|name| idl::track_event::NameField::Name(name.to_string())),
         debug_annotations: debug_annotations.map(|d| d.annotations).unwrap_or_default(),
-        source_location_field: location,
         ..Default::default()
-    }
-}
-
-fn metadata_name(value: &Value) -> Option<&str> {
-    value
-        .as_object()
-        .and_then(|o| o.get("metadata"))
-        .and_then(|o| o.get("name"))
-        .and_then(|s| s.as_str())
-}
-
-fn metadata_location(value: &Value) -> Option<(&str, u32)> {
-    let file = value
-        .as_object()
-        .and_then(|o| o.get("metadata"))
-        .and_then(|o| o.get("file"))
-        .and_then(|s| s.as_str());
-    let line = value
-        .as_object()
-        .and_then(|o| o.get("metadata"))
-        .and_then(|o| o.get("line"))
-        .and_then(|s| s.as_u64());
-    match (file, line) {
-        (Some(file), Some(line)) => Some((file, line as u32)),
-        _ => None,
     }
 }
 
@@ -337,54 +310,18 @@ struct DebugAnnotations {
     annotations: Vec<idl::DebugAnnotation>,
 }
 
-fn debug_annotations(value: &serde_json::Value) -> Option<DebugAnnotations> {
-    let annotations = value
-        .as_object()?
-        .iter()
-        .map(|(key, value)| debug_annotation(Some(key), value))
-        .collect();
-
-    Some(DebugAnnotations { annotations })
+fn debug_annotations(annotations: &[perfetto_model::DebugAnnotation]) -> Option<DebugAnnotations> {
+    Some(DebugAnnotations {
+        annotations: annotations.to_vec(),
+    })
 }
 
-fn debug_annotation(name: Option<&str>, value: &Value) -> idl::DebugAnnotation {
-    let name_field = name.map(|name| idl::debug_annotation::NameField::Name(name.to_string()));
+fn debug_annotation(name: Option<String>, value: String) -> idl::DebugAnnotation {
+    let name_field = name.map(idl::debug_annotation::NameField::Name);
 
-    match value {
-        serde_json::Value::Null => idl::DebugAnnotation {
-            name_field,
-            ..Default::default()
-        },
-        serde_json::Value::Bool(b) => idl::DebugAnnotation {
-            name_field,
-            value: Some(idl::debug_annotation::Value::BoolValue(*b)),
-            ..Default::default()
-        },
-        serde_json::Value::Number(number) => idl::DebugAnnotation {
-            name_field,
-            value: number.as_i64().map(idl::debug_annotation::Value::IntValue),
-            ..Default::default()
-        },
-        serde_json::Value::String(string) => idl::DebugAnnotation {
-            name_field,
-            value: Some(idl::debug_annotation::Value::StringValue(string.clone())),
-            ..Default::default()
-        },
-        serde_json::Value::Array(vec) => idl::DebugAnnotation {
-            name_field,
-            array_values: vec
-                .iter()
-                .map(|value| debug_annotation(None, value))
-                .collect(),
-            ..Default::default()
-        },
-        serde_json::Value::Object(map) => idl::DebugAnnotation {
-            name_field,
-            dict_entries: map
-                .iter()
-                .map(|(key, value)| debug_annotation(Some(key), value))
-                .collect(),
-            ..Default::default()
-        },
+    idl::DebugAnnotation {
+        name_field,
+        value: Some(idl::debug_annotation::Value::StringValue(value)),
+        ..Default::default()
     }
 }

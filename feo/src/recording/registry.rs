@@ -4,13 +4,16 @@
 
 //! Type registry
 use crate::recording::transcoder::{ComRecTranscoderBuilder, RecordingTranscoder};
+use alloc::borrow::ToOwned as _;
+use alloc::boxed::Box;
+use feo_com::interface::ActivityInput;
 use serde::Serialize;
 use std::collections::HashMap;
 
 /// Registry of types used in the com layer
 #[derive(Debug)]
 pub struct TypeRegistry {
-    // Map user-defined, human-readable type names to type information
+    /// Map user-defined, human-readable type names to type information
     map: RegistryMap,
 }
 
@@ -43,15 +46,22 @@ impl TypeRegistry {
     /// - a type with identical type id (i.e. the same type) has already been registered
     /// - the explicitly or implicitly provided type name is not unique
     pub fn add<
-        T: Serialize + postcard::experimental::max_size::MaxSize + std::fmt::Debug + 'static,
+        T: Serialize + postcard::experimental::max_size::MaxSize + core::fmt::Debug + 'static,
     >(
         &mut self,
         type_name: Option<&'static str>,
+        input_builder: impl Fn(&str) -> Box<dyn ActivityInput<T>> + Clone + Send + 'static,
     ) -> &mut Self {
         let type_name = type_name.unwrap_or(core::any::type_name::<T>());
-        let decser_builder =
-            Box::new(|topic: &'static str| RecordingTranscoder::<T>::build(topic, type_name))
-                as Box<dyn ComRecTranscoderBuilder>;
+        let decser_builder = {
+            let type_name = type_name.to_owned();
+            let input_builder = input_builder.clone();
+            Box::new(move |topic: &str| {
+                let topic = topic.to_owned();
+                let type_name = type_name.clone();
+                RecordingTranscoder::<T>::build(input_builder.clone(), topic, type_name)
+            }) as Box<dyn ComRecTranscoderBuilder>
+        };
         let type_info = TypeInfo {
             type_name,
             comrec_builder: decser_builder,
@@ -91,8 +101,8 @@ pub struct TypeInfo {
     pub comrec_builder: Box<dyn ComRecTranscoderBuilder>,
 }
 
-impl std::fmt::Debug for TypeInfo {
-    fn fmt(&self, writer: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for TypeInfo {
+    fn fmt(&self, writer: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writer.write_fmt(format_args!(
             "[ type_name: {:?}, decser_builder: Box(?) ]",
             self.type_name
@@ -102,17 +112,25 @@ impl std::fmt::Debug for TypeInfo {
 
 #[macro_export]
 macro_rules! register_type {
-    ($registry:ident, $type:ty: $name:expr) => {
-        $registry.add::<$type>(Some($name))
+    ($registry:ident, $type:ty: $name:expr, $input:expr) => {
+        $registry.add::<$type>(Some($name), $input)
     };
-    ($registry:ident, $type:ty) => {
-        $registry.add::<$type>(None)
+    ($registry:ident, $type:ty, $input:expr) => {
+        $registry.add::<$type>(None, $input)
     };
 }
 
 #[macro_export]
 macro_rules! register_types {
-    ($registry:ident, $($type:ty $(:$name:expr)?),+ $(,)?) => {$(register_type!($registry, $type $(:$name)?));+};
+    ($registry:ident; $($type:ty $(:$name:expr)?, $input_builder:expr);+ $(,)?) => {
+        $(
+            register_type!(
+                $registry,
+                $type $(:$name)?,
+                $input_builder
+            )
+        );+
+    };
 }
 
 /////////////
@@ -121,6 +139,16 @@ macro_rules! register_types {
 
 #[test]
 fn test_type_registry() {
+    #[derive(Debug)]
+    // Dummy input implementation for the test
+    struct DummyInput;
+
+    impl<T: core::fmt::Debug> ActivityInput<T> for DummyInput {
+        fn read(&self) -> Result<feo_com::interface::InputGuard<T>, feo_com::interface::Error> {
+            todo!()
+        }
+    }
+
     #[derive(Debug, serde::Serialize, postcard::experimental::max_size::MaxSize)]
     struct TestType1 {}
 
@@ -131,7 +159,7 @@ fn test_type_registry() {
     struct TestType3 {}
 
     let mut registry = TypeRegistry::default();
-    register_types!(registry, TestType1, TestType2, TestType3: "my_test_type3_name");
+    register_types!(registry; TestType1, |_: &str| Box::new(DummyInput); TestType2, |_: &str| Box::new(DummyInput); TestType3: "my_test_type3_name", |_: &str| Box::new(DummyInput));
 
     // test presence and data of entry for TestType1
     let type_name = core::any::type_name::<TestType1>();

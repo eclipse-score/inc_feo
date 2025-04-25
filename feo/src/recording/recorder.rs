@@ -4,32 +4,38 @@
 
 //! FEO data recorder. Records communication for debugging and development purposes
 
+use crate::ids::AgentId;
 use crate::recording::registry::TypeRegistry;
 use crate::recording::transcoder::ComRecTranscoder;
-use crate::signalling::{AgentId, MioSocketReceiver, MioSocketSender, Receiver, Sender, Signal};
+use crate::signalling::common::interface::ConnectRecorder;
+use crate::signalling::common::signals::Signal;
+use crate::timestamp;
 use crate::timestamp::{timestamp, Timestamp};
-use crate::{agent, timestamp};
-use feo_log::{debug, error, info, trace};
+use alloc::boxed::Box;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::time::Duration;
+use feo_log::{debug, error, trace};
 use io::Write;
-use mio::net::TcpStream;
-use mio::{Events, Poll};
 use postcard::experimental::max_size::MaxSize;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::BufWriter;
-use std::net::SocketAddr;
 use std::{fs, io};
 
 /// Maximum allowed length of topics and type names in the recording
 const TOPIC_TYPENAME_MAX_SIZE: usize = 256;
 
 /// The data recorder.
-pub struct Recorder<'s> {
+pub(crate) struct FileRecorder<'s> {
     // ID of the recorder
-    local_agent_id: AgentId,
+    id: AgentId,
 
-    // Socket address of the primary process
-    primary: SocketAddr,
+    /// Connector to the primary
+    connector: Box<dyn ConnectRecorder>,
+
+    /// Receive timeout used on poll
+    receive_timeout: Duration,
 
     // A file writer receiving the data
     writer: BufWriter<fs::File>,
@@ -40,27 +46,16 @@ pub struct Recorder<'s> {
     // The type registry
     registry: &'s TypeRegistry,
 
-    // The TCP stream receiving events to record
-    recorder_stream: Option<TcpStream>,
-
-    // The TCP stream sending ready signals
-    ready_stream: Option<TcpStream>,
-
-    // Poll object for polling the TCP stream
-    poll: Poll,
-
-    // Events object to use with the Poll object
-    events: Events,
-
     // Transcoders reading and serializing com data
     transcoders: Vec<Box<dyn ComRecTranscoder>>,
 }
 
-impl<'s> Recorder<'s> {
+impl<'s> FileRecorder<'s> {
     /// Create a new data recorder
-    pub fn new<'t: 's>(
-        local_agent_id: AgentId,
-        primary: SocketAddr,
+    pub(crate) fn new<'t: 's>(
+        id: AgentId,
+        connector: Box<dyn ConnectRecorder>,
+        receive_timeout: Duration,
         record_file: &'static str,
         rules: RecordingRules,
         registry: &'t TypeRegistry,
@@ -69,37 +64,19 @@ impl<'s> Recorder<'s> {
         let file = fs::File::create(record_file)?;
         let writer = BufWriter::new(file);
 
-        // Create poller and events object
-        let poll = Poll::new()?;
-        let events = Events::with_capacity(1024);
-
         Ok(Self {
-            local_agent_id,
-            primary,
+            id,
+            connector,
+            receive_timeout,
             writer,
             rules,
             registry,
-            recorder_stream: None,
-            ready_stream: None,
-            poll,
-            events,
             transcoders: vec![],
         })
     }
 
     /// Run the recording
-    pub fn run(&mut self) {
-        self.connect_primary();
-
-        // Create socket signal receiver and register it with the poller
-        let recorder_stream = self
-            .recorder_stream
-            .as_mut()
-            .expect("recorder signal stream not available");
-        let mut receiver =
-            MioSocketReceiver::new(recorder_stream, &mut self.poll, &mut self.events);
-        receiver.register(0).unwrap();
-
+    pub(crate) fn run(&mut self) {
         // Create transcoders reading from the required topics
         debug!("Creating transcoders");
         for (topic, type_name) in self.rules.iter() {
@@ -124,103 +101,55 @@ impl<'s> Recorder<'s> {
         loop {
             // Receive the next signal from the primary process
             trace!("Waiting for next signal to record");
-            let signal_pdu = receiver.recv().expect("failed to receive");
-            let Ok(signal) = signal_pdu.try_into() else {
-                error!("Failed to decode signal pdu, trying to continue");
+
+            let Ok(received) = self.connector.receive(self.receive_timeout) else {
+                error!("Failed to receive signal, trying to continue");
                 self.writer
                     .flush()
                     .unwrap_or_else(|_| error!("Failed to flush writer, trying to continue"));
                 continue;
             };
+            let Some(signal) = received else {
+                continue;
+            };
             debug!("Received signal {signal}");
 
             match signal {
+                Signal::StartupSync(sync_info) => {
+                    timestamp::initialize_from(sync_info);
+                }
                 // If received a step signal, or an end-of-taskchain signal,
                 // record the current latest change of com data, then record the signal.
                 // Also, flush the recording file at whenever the end of the task chain is reached.
                 Signal::Step(_) => {
-                    Self::record_com_data(&mut self.transcoders, &mut self.writer, &mut msg_buf);
-                    Self::record_signal(signal, &mut self.writer);
+                    self.record_com_data(&mut msg_buf);
+                    self.record_signal(signal);
                 }
                 Signal::TaskChainEnd(_) => {
-                    Self::record_com_data(&mut self.transcoders, &mut self.writer, &mut msg_buf);
-                    Self::record_signal(signal, &mut self.writer);
-                    Self::flush(&mut self.writer);
-                    Self::send_recorder_ready(self.local_agent_id, self.ready_stream.as_mut());
+                    self.record_com_data(&mut msg_buf);
+                    self.record_signal(signal);
+                    self.flush();
+                    self.send_recorder_ready();
                 }
 
                 // Otherwise, only record the signal
                 _ => {
-                    Self::record_signal(signal, &mut self.writer);
+                    self.record_signal(signal);
                 }
             }
         }
     }
 
-    /// Set up the event recording stream to the primary agent
-    pub fn connect_primary(&mut self) {
-        let (mut recorder_stream, ready_stream) =
-            agent::secondary::connect_to_primary(self.local_agent_id, self.primary);
-
-        let mut sender = MioSocketSender::new(&mut recorder_stream);
-        let hello_recorder = Signal::HelloTrigger(self.local_agent_id);
-        sender
-            .send(&hello_recorder)
-            .unwrap_or_else(|e| panic!("failed to send 'hello_recorder': {:?}", e));
-
-        self.sync_time(&mut recorder_stream);
-        info!("Time synchronization with primary agent done");
-
-        self.recorder_stream = Some(recorder_stream);
-        self.ready_stream = Some(ready_stream);
-    }
-
-    /// Wait for synchronization event from primary agent and do time synchronization
-    fn sync_time(&mut self, recorder_stream: &mut TcpStream) {
-        // Create socket signal receiver and register it with the poller
-        let mut receiver =
-            MioSocketReceiver::new(recorder_stream, &mut self.poll, &mut self.events);
-        receiver.register(0).unwrap();
-
-        // Wait until signal received
-        debug!("Waiting for startup synchronization signal");
-        let signal: Signal = receiver
-            .recv()
-            .expect("failed to receive")
-            .try_into()
-            .expect("failed to decode signal pdu");
-        debug!("Received signal {signal}");
-
-        // Extract synchronization info or panic, if signal is incorrect
-        let sync_info = match signal {
-            Signal::StartupSync(info) => info,
-            _ => panic!("received unexpected signal {signal}"),
-        };
-
-        // Deregister receiver from poller
-        receiver
-            .deregister()
-            .expect("failed to deregister receiver");
-
-        // Synchronize from received data
-        timestamp::initialize_from(sync_info);
-    }
-
     /// Flush the recording file
-    fn flush(writer: &mut BufWriter<fs::File>) {
-        let result = writer.flush();
-        if result.is_err() {
-            panic!("failed to flush recording file");
+    fn flush(&mut self) {
+        if let Err(e) = self.writer.flush() {
+            panic!("failed to flush recording file: {e}");
         }
     }
 
     // Record the latest changes of com data
-    fn record_com_data(
-        transcoders: &mut Vec<Box<dyn ComRecTranscoder>>,
-        writer: &mut BufWriter<fs::File>,
-        data_buffer: &mut [u8],
-    ) {
-        for transcoder in transcoders.iter() {
+    fn record_com_data(&mut self, data_buffer: &mut [u8]) {
+        for transcoder in self.transcoders.iter() {
             let data = transcoder.read_transcode(data_buffer);
             if let Some(serialized_data) = data {
                 // create serialized data description record
@@ -248,9 +177,10 @@ impl<'s> Recorder<'s> {
                 // Write description record and subsequent data block
                 // In case of failure, log an error message and continue
                 // (which may result in a corrupted file)
-                if let Err(e) = writer
+                if let Err(e) = self
+                    .writer
                     .write_all(serialized_header)
-                    .and_then(|_| writer.write_all(serialized_data))
+                    .and_then(|_| self.writer.write_all(serialized_data))
                 {
                     error!("Failed to write data: {e:?}");
                 }
@@ -259,7 +189,7 @@ impl<'s> Recorder<'s> {
     }
 
     /// Record the given signal
-    fn record_signal(signal: Signal, writer: &mut BufWriter<fs::File>) {
+    fn record_signal(&mut self, signal: Signal) {
         let signal_record = Record::Signal(SignalRecord {
             signal,
             timestamp: timestamp(),
@@ -267,26 +197,24 @@ impl<'s> Recorder<'s> {
         let mut buf = [0u8; Record::POSTCARD_MAX_SIZE];
         let serialized =
             postcard::to_slice(&signal_record, &mut buf).expect("serialization failed");
-        if let Err(e) = writer.write_all(serialized) {
+        if let Err(e) = self.writer.write_all(serialized) {
             error!("Failed to write signal {signal:?}: {e:?}");
         }
     }
 
     // Send RecorderReady signal to the primary agent
-    fn send_recorder_ready(agent_id: AgentId, ready_stream: Option<&mut TcpStream>) {
-        let ready_stream = ready_stream.expect("missing TCP stream");
-        let mut sender = MioSocketSender::new(ready_stream);
-        let signal = Signal::RecorderReady((agent_id, timestamp()));
-        sender
-            .send(&signal)
+    fn send_recorder_ready(&mut self) {
+        let signal = Signal::RecorderReady((self.id, timestamp()));
+        self.connector
+            .send_to_scheduler(&signal)
             .unwrap_or_else(|e| panic!("failed to send 'recorder_ready': {:?}", e));
     }
 }
 
-impl Drop for Recorder<'_> {
+impl Drop for FileRecorder<'_> {
     fn drop(&mut self) {
         // Try to flush pending data.
-        Self::flush(&mut self.writer);
+        self.flush();
     }
 }
 
@@ -336,8 +264,10 @@ impl MaxSize for DataDescriptionRecord<'_> {
 
 #[cfg(test)]
 mod test {
-    use super::{DataDescriptionRecord, MaxSize, Timestamp, TOPIC_TYPENAME_MAX_SIZE};
-    use std::time::Duration;
+    use super::*;
+    use alloc::string::String;
+    use core::time::Duration;
+
     #[test]
     fn test_max_size_for_data_description_record() {
         let s = String::from_utf8(vec![b'a'; TOPIC_TYPENAME_MAX_SIZE]).expect("valid string");

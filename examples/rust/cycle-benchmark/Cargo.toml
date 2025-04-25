@@ -1,0 +1,25 @@
+[package]
+name = "cycle-benchmark"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+path = "src/bin/cycle_bench.rs"
+name = "cycle_bench"
+required-features = []
+
+[dependencies]
+feo = { workspace = true }
+feo-log = { workspace = true }
+feo-logger = { workspace = true }
+feo-time = { workspace = true }
+feo-tracing = { workspace = true }
+tracing = { workspace = true }
+postcard = { workspace = true, features = ["experimental-derive"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[build-dependencies]
+
+[features]
+default = ["feo/loop_duration_meter", "feo/recording"]

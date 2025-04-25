@@ -2,15 +2,16 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::{Context, Error};
+use crate::io::ThreadNameCache;
+use anyhow::Error;
 use feo_tracing::protocol;
+use feo_tracing::protocol::EventInfo;
 use std::time;
 use std::time::SystemTime;
 
 pub type ProcessId = u32;
 pub type ThreadId = u32;
 pub type Id = u64;
-pub type Value = serde_json::Value; // TODO
 
 /// A process identifier
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -22,7 +23,7 @@ pub struct Process {
 }
 
 /// A thread identifier
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
 pub struct Thread {
     /// Thread ID
     pub id: ThreadId,
@@ -30,40 +31,9 @@ pub struct Thread {
     pub name: Option<String>,
 }
 
-/// Trace data.
+/// A trace record to be stored in the trace output
 #[derive(Debug)]
-pub enum TraceData {
-    /// Process spawned (connected)
-    Exec,
-    /// Process exited (disconnected)
-    Exit,
-    /// New span created
-    NewSpan { id: Id, attributes: Value },
-    /// Record added to span
-    Record { id: Id, event: Value },
-    /// Event emitted
-    Event {
-        /// Parent span of the event
-        parent_span: Option<Id>,
-        /// Event data. For simplicity, we use a JSON value here. This might be suboptimal for
-        /// performance.
-        event: Value,
-    },
-    /// Span entered
-    EnterSpan { id: Id },
-    /// Span exited
-    ExitSpan { id: Id },
-}
-
-#[derive(Debug, Default)]
-pub struct Metadata {
-    /// The size of the wire message
-    pub wire_size: Option<u64>,
-}
-
-/// A trace packet
-#[derive(Debug)]
-pub struct TracePacket {
+pub struct TraceRecord {
     /// Timestamp of the trace packet based on UNIX epoch
     pub timestamp: SystemTime,
     /// Process information
@@ -71,65 +41,126 @@ pub struct TracePacket {
     /// Process information
     pub thread: Option<Thread>,
     /// Trace data
-    pub data: TraceData,
-    /// Metadata
-    pub metadata: Metadata,
+    pub data: RecordData,
 }
 
-impl TracePacket {
+impl TraceRecord {
     /// Create a new trace packet
     pub fn new(
         timestamp: SystemTime,
         process: Process,
         thread: Option<Thread>,
-        data: TraceData,
-        metadata: Metadata,
+        data: RecordData,
     ) -> Self {
         Self {
             timestamp,
             process,
             thread,
             data,
-            metadata,
         }
     }
 }
 
-/// Decode a trace packet from a byte slice.
-pub fn decode_packet(packet: &[u8]) -> Result<TracePacket, Error> {
-    let trace_packet: protocol::TracePacket =
-        postcard::from_bytes(packet).context("Failed to deserialize packet")?;
+/// Trace data.
+#[derive(Debug)]
+pub enum RecordData {
+    /// Process spawned (connected)
+    Exec,
+    /// Process exited (disconnected)
+    Exit,
+    /// New span created
+    NewSpan {
+        id: Id,
+        name: String,
+        info: RecordEventInfo,
+    },
+    /// Record added to span
+    Record { span: Id },
+    /// Event emitted
+    Event {
+        /// Parent span of the event
+        parent_span: Option<Id>,
+        name: String,
+        info: RecordEventInfo,
+    },
+    /// Span entered
+    EnterSpan { id: Id },
+    /// Span exited
+    ExitSpan { id: Id },
+}
 
+impl From<protocol::TraceData> for RecordData {
+    fn from(trace_data: protocol::TraceData) -> Self {
+        match trace_data {
+            protocol::TraceData::NewSpan {
+                id,
+                name,
+                name_len,
+                info,
+            } => {
+                let record_info: RecordEventInfo = info.into();
+                RecordData::NewSpan {
+                    id,
+                    name: String::from_utf8_lossy(&name[0..name_len]).to_string(),
+                    info: record_info,
+                }
+            }
+            protocol::TraceData::Record { span } => RecordData::Record { span },
+            protocol::TraceData::Event {
+                parent_span,
+                name,
+                name_len,
+                info,
+            } => {
+                let record_info: RecordEventInfo = info.into();
+                RecordData::Event {
+                    parent_span,
+                    name: String::from_utf8_lossy(&name[0..name_len]).to_string(),
+                    info: record_info,
+                }
+            }
+            protocol::TraceData::Enter { span } => RecordData::EnterSpan { id: span },
+            protocol::TraceData::Exit { span } => RecordData::ExitSpan { id: span },
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct RecordEventInfo {
+    pub name: Option<String>,
+    pub value: String,
+}
+
+impl From<EventInfo> for RecordEventInfo {
+    fn from(info: EventInfo) -> Self {
+        let name_len = info.name_len;
+        let name = name_len.map(|len| String::from_utf8_lossy(&info.name[0..len]).to_string());
+        let value = String::from_utf8_lossy(&info.value[0..info.value_len]).to_string();
+        RecordEventInfo { name, value }
+    }
+}
+
+/// Decode a trace packet from a byte slice.
+pub(crate) fn decode_packet(
+    pid: u32,
+    trace_packet: protocol::TracePacket,
+    thread_cache: &mut ThreadNameCache,
+    process_name: Option<String>,
+) -> Result<TraceRecord, Error> {
     // Process packet
     let timestamp = time::UNIX_EPOCH + time::Duration::from_nanos(trace_packet.timestamp);
+    let data = trace_packet.data.into();
     let process = Process {
-        id: trace_packet.process.pid,
-        name: None,
+        id: pid,
+        name: process_name,
     };
-    let thread = Some(Thread {
-        id: trace_packet.process.tid,
-        name: None,
+
+    let thread = trace_packet.process.map(|p| Thread {
+        id: p.tid,
+        name: thread_cache.get(p.tid).map(|s| s.to_string()),
     });
-    let data = match trace_packet.data {
-        protocol::TraceData::NewSpan { id, attributes } => TraceData::NewSpan {
-            id,
-            attributes: serde_json::to_value(attributes).expect("invalid attributes"),
-        },
-        protocol::TraceData::Record { span, values } => TraceData::Event {
-            parent_span: Some(span),
-            event: serde_json::to_value(values).expect("invalid values"),
-        },
-        protocol::TraceData::Event { parent_span, event } => TraceData::Event {
-            parent_span,
-            event: serde_json::to_value(event).expect("invalid event"),
-        },
-        protocol::TraceData::Enter { span } => TraceData::EnterSpan { id: span },
-        protocol::TraceData::Exit { span } => TraceData::ExitSpan { id: span },
-    };
-    let metadata = Metadata {
-        wire_size: Some(packet.len() as u64),
-    };
-    let packet = TracePacket::new(timestamp, process, thread, data, metadata);
+
+    let packet = TraceRecord::new(timestamp, process, thread, data);
 
     Ok(packet)
 }

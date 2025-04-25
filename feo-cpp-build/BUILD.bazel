@@ -1,0 +1,26 @@
+load("@cargo//:defs.bzl", "all_crate_deps")
+load("@rules_rust//rust:defs.bzl", "rust_library")
+
+cc_library(
+    name = "libfeo_cpp_build_cc",
+    hdrs = ["src/include/feo_cpp/feo_macros.h"],
+    includes = ["src/include"],
+    visibility = ["//visibility:public"],
+)
+
+rust_library(
+    name = "libfeo_cpp_build_rust",
+    srcs = [
+        "src/lib.rs",
+    ],
+    crate_features = [],
+    crate_name = "feo_cpp_build",
+    proc_macro_deps = all_crate_deps(
+        proc_macro_dev = True,
+    ),
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        normal = True,
+    ) + [
+    ],
+)

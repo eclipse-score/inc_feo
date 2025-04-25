@@ -2,11 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use core::mem::size_of;
+use core::time::Duration;
 use feo_log::Level;
 use feo_time::SystemTime;
 use std::io::{self, Read};
-use std::mem::size_of;
-use std::time::Duration;
 
 /// Log record that can be encoded. This is the borrowed version.
 #[derive(Debug)]

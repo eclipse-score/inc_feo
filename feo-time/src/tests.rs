@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use alloc::vec::Vec;
 use core::fmt::Debug;
+use std::println;
 
 macro_rules! assert_almost_eq {
     ($a:expr, $b:expr) => {{

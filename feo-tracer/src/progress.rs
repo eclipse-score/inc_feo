@@ -10,13 +10,15 @@ use std::io::Write;
 use tokio::{task, time};
 
 /// Progress bar template for connected clients
-const CONNECTED_TEMPLATE: &str = "{spinner:.bold.dim} {prefix:.bold}: {decimal_bytes} at {decimal_bytes_per_sec} duration: {elapsed_precise}";
+const MAIN_TEMPLATE: &str = "{spinner:.bold.dim} {prefix:.bold}: {decimal_bytes} at {decimal_bytes_per_sec} duration: {elapsed_precise}";
+/// Progress bar template for connected clients
+const CLIENT_TEMPLATE: &str = "{spinner:.bold.dim} {prefix:.bold}: {human_pos} samples at {per_sec} duration: {elapsed_precise}";
 /// Connected tick chars
-const CONNECTED_TICK_CHARS: &str = "⠁⠉⠙⠚⠒⠂⠂⠒⠲⠴⠤⠄⠄⠤⠴⠲⠒⠂⠂⠒⠚⠙⠉⠁";
+const TICK_CHARS: &str = "⠁⠉⠙⠚⠒⠂⠂⠒⠲⠴⠤⠄⠄⠤⠴⠲⠒⠂⠂⠒⠚⠙⠉⠁";
 /// Progress bar template for disconnected clients
-const DISCONNECTED_TEMPLATE: &str = "⏹ {prefix:.bold}: Received {decimal_bytes}";
+const DISCONNECTED_TEMPLATE: &str = "⏹ {prefix:.bold}: Received {human_pos} samples";
 /// Disconnected removal delay
-const DISCONNECTED_REMOVAL_DELAY: time::Duration = std::time::Duration::from_secs(3);
+const DISCONNECTED_REMOVAL_DELAY: time::Duration = time::Duration::from_secs(3);
 
 /// Progress bar
 #[derive(Clone)]
@@ -24,8 +26,10 @@ pub struct Progress {
     bar: MultiProgress,
     /// Map of process id to progress bar
     connections: HashMap<u32, indicatif::ProgressBar>,
-    /// Style for connection progress bars
-    style: ProgressStyle,
+    /// Style for main progress bar
+    main_style: ProgressStyle,
+    /// Style for connected clients progress bars
+    client_style: ProgressStyle,
     /// Disconnected style
     style_disconnected: ProgressStyle,
 }
@@ -33,15 +37,16 @@ pub struct Progress {
 impl Progress {
     pub fn new() -> Result<Self, Error> {
         let bar = MultiProgress::new();
-        let style =
-            ProgressStyle::with_template(CONNECTED_TEMPLATE)?.tick_chars(CONNECTED_TICK_CHARS);
+        let main_style = ProgressStyle::with_template(MAIN_TEMPLATE)?.tick_chars(TICK_CHARS);
+        let client_style = ProgressStyle::with_template(CLIENT_TEMPLATE)?.tick_chars(TICK_CHARS);
         let style_disconnected = ProgressStyle::with_template(DISCONNECTED_TEMPLATE)?;
         let connections = HashMap::new();
 
         Ok(Progress {
             bar,
             connections,
-            style,
+            main_style,
+            client_style,
             style_disconnected,
         })
     }
@@ -55,7 +60,7 @@ impl Progress {
     pub fn add_writer(&mut self, name: &str, writer: impl Write) -> impl Write {
         let pb = indicatif::ProgressBar::new(0)
             .with_prefix(name.to_string())
-            .with_style(self.style.clone());
+            .with_style(self.main_style.clone());
 
         // Enable the steady tick
         pb.enable_steady_tick(time::Duration::from_secs(1));
@@ -67,10 +72,10 @@ impl Progress {
     }
 
     /// Handle a trace packet
-    pub fn on_packet(&mut self, packet: &data::TracePacket) {
+    pub fn on_packet(&mut self, packet: &data::TraceRecord) {
         let id = packet.process.id;
         match packet.data {
-            data::TraceData::Exec => {
+            data::RecordData::Exec => {
                 let name = if let Some(name) = packet.process.name.as_ref() {
                     format!("client ({name}:{id:x})")
                 } else {
@@ -79,13 +84,13 @@ impl Progress {
                 // Create a new progress bar for the client
                 let pb = indicatif::ProgressBar::new(0)
                     .with_prefix(name)
-                    .with_style(self.style.clone());
+                    .with_style(self.client_style.clone());
                 // Add the progress bar to the connection map
                 self.connections.insert(id, pb.clone());
                 // Register the progress bar at the multi progress bar
                 self.bar.add(pb);
             }
-            data::TraceData::Exit => {
+            data::RecordData::Exit => {
                 let Some(pb) = self.connections.get_mut(&id) else {
                     return;
                 };
@@ -102,13 +107,8 @@ impl Progress {
                 });
             }
             _ => {
-                if let Some((pb, sz)) = self
-                    .connections
-                    .get(&id)
-                    .and_then(|pb| packet.metadata.wire_size.map(|sz| (pb, sz)))
-                {
-                    // Update the progress bar with the received packet size
-                    pb.inc(sz);
+                if let Some(pb) = self.connections.get(&id) {
+                    pb.inc(1);
                 }
             }
         }

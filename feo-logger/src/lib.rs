@@ -7,11 +7,11 @@
 //! Bare minimum logger implementation for the `score-feo` project.
 //! This is placeholder.
 
+use core::fmt::Debug;
+use core::str::FromStr;
 use feo_log::{LevelFilter, Log, Metadata, Record};
 use feo_time::SystemTime;
-use std::fmt::Debug;
 use std::io::Write;
-use std::str::FromStr;
 use std::{io, process};
 
 mod console;

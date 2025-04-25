@@ -1,0 +1,31 @@
+load("@cargo//:defs.bzl", "all_crate_deps")
+load("@rules_rust//rust:defs.bzl", "rust_library")
+
+rust_library(
+    name = "libfeo_com_rust",
+    srcs = [
+        "src/interface.rs",
+        "src/iox2/mod.rs",
+        "src/lib.rs",
+        "src/linux_shm/mod.rs",
+        "src/linux_shm/shared_memory.rs",
+    ],
+    crate_features = [
+        # bazel has a different concept (select) for optional dependencies than cargo,
+        # so we activate all features until we refactor to select
+        "ipc_iceoryx2",
+        "ipc_linux_shm",
+    ],
+    crate_name = "feo_com",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        normal = True,
+    ) + [
+        "//feo-log:libfeo_log_rust",
+        # all_crate_deps only contains optional dependencies which are default-activated,
+        # so we add all optional dependencies here to be independent of cargo default features
+        "@cargo//:iceoryx2",
+        "@cargo//:nix",
+        "@cargo//:rand",
+    ],
+)
