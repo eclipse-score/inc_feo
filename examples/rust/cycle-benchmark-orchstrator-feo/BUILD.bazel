@@ -1,0 +1,40 @@
+load("@cargo//:defs.bzl", "all_crate_deps")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+rust_library(
+    name = "libcycle_benchmark_rust",
+    srcs = [
+        "src/activities.rs",
+        "src/config.rs",
+        "src/lib.rs",
+    ],
+    crate_name = "cycle_benchmark",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//feo:libfeo_recording_rust",
+        "//feo-com:libfeo_com_rust",
+        "//feo-log:libfeo_log_rust",
+        "//feo-logger:libfeo_logger_rust",
+        "//feo-time:libfeo_time_rust",
+        "//feo-tracing:libfeo_tracing_rust",
+        "@cargo//:postcard",
+        "@cargo//:serde",
+        "@cargo//:serde_json",
+],
+)
+
+rust_binary(
+    name = "cycle_bench",
+    srcs = [
+        "src/bin/cycle_bench.rs",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":libcycle_benchmark_rust",
+        "//feo:libfeo_recording_rust",
+        "//feo-log:libfeo_log_rust",
+        "//feo-logger:libfeo_logger_rust",
+        "//feo-time:libfeo_time_rust",
+        "//feo-tracing:libfeo_tracing_rust",
+    ],
+)

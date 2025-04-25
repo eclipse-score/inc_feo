@@ -1,0 +1,31 @@
+{
+  "cycle_time_ms": 0,
+  "primary_agent": 1000,
+  "agent_assignments": {
+    "1000":
+    [10,
+      [ 1, 21,
+        101,
+        31, 51,
+        102,
+        61, 81,
+        103]],
+    "1001":
+    [10,
+      [ 11, 41, 71]]
+  },
+  "activity_graph":
+    [ [[1], true],
+      [[11], true],
+      [[21], true],
+      [[101], false],
+      [[31], true],
+      [[41], true],
+      [[51], true],
+      [[102], false],
+      [[61], true],
+      [[71], true],
+      [[81], true],
+      [[103], false]
+    ]
+}
