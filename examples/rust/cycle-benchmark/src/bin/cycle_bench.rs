@@ -159,7 +159,6 @@ mod direct_mpsc {
         params: Params,
         app_config: ApplicationConfig,
     ) -> PrimaryConfig {
-        println!("{:?}", app_config.secondaries());
         assert!(
             app_config.secondaries().is_empty(),
             "mpsc-only signalling does not support multi-agent configurations",

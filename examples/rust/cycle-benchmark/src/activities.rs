@@ -11,11 +11,16 @@ use feo_tracing::{instrument, tracing};
 pub struct DummyActivity {
     /// ID of the activity
     activity_id: ActivityId,
+    /// ID as string (only used for tracing)
+    _id_str: String,
 }
 
 impl DummyActivity {
     pub fn build(activity_id: ActivityId) -> Box<dyn Activity> {
-        Box::new(Self { activity_id })
+        Box::new(Self {
+            activity_id,
+            _id_str: u64::from(activity_id).to_string(),
+        })
     }
 }
 
@@ -28,7 +33,9 @@ impl Activity for DummyActivity {
     fn startup(&mut self) {}
 
     #[instrument(name = "Activity step")]
-    fn step(&mut self) {}
+    fn step(&mut self) {
+        tracing::event!(tracing::Level::TRACE, id = self._id_str);
+    }
 
     #[instrument(name = "Activity shutdown")]
     fn shutdown(&mut self) {}

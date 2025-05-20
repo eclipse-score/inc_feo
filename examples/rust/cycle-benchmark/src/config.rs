@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::activities::DummyActivity;
+use crate::composites::{composite_builder, find_composites};
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 use feo::activity::ActivityIdAndBuilder;
 use feo::ids::{ActivityId, AgentId, WorkerId};
@@ -32,6 +33,7 @@ pub fn socket_paths() -> (PathBuf, PathBuf) {
 }
 
 /// Configuration of the benchmark application
+#[derive(Clone)]
 pub struct ApplicationConfig {
     /// Type of signalling
     signalling: SignallingType,
@@ -55,6 +57,20 @@ pub struct ApplicationConfig {
     ///
     /// For each activity id, a list of ids of activities it depends on
     activity_deps: ActivityDependencies,
+    /// Chains of activities to be put into CompositeActivities
+    ///
+    /// IDs of composite activities mapped to a sequence of contained activities.
+    /// The IDs of the contained activities do not have to be unique.
+    composite_activities: HashMap<ActivityId, Vec<ActivityId>>,
+}
+
+#[derive(Deserialize, Debug, Clone, Copy)]
+pub enum SignallingType {
+    DirectMpsc,
+    DirectTcp,
+    DirectUnix,
+    RelayedTcp,
+    RelayedUnix,
 }
 
 impl ApplicationConfig {
@@ -98,6 +114,12 @@ impl ApplicationConfig {
     }
 
     pub fn activity_dependencies(&self) -> ActivityDependencies {
+        let activity_chains = find_composites(&self.activity_deps, &self.activity_worker_map());
+        for chain in activity_chains {
+            let numeric: Vec<u64> = chain.iter().map(u64::from).collect();
+            println!("Found potential composite activity: {:?}", numeric);
+        }
+
         self.activity_deps.clone()
     }
 
@@ -133,7 +155,14 @@ impl ApplicationConfig {
 
                 // Loop aver activity ids assigned to this worker and create required builders
                 for aid in aids {
-                    let builder = Box::new(DummyActivity::build);
+                    // If the id corresponds to a composite activity, create a composite builder;
+                    // otherwise, create standard builder
+                    let builder = if self.composite_activities.contains_key(aid) {
+                        let components = &self.composite_activities[aid];
+                        composite_builder(components)
+                    } else {
+                        Box::new(DummyActivity::build)
+                    };
                     acts_and_builders.push((*aid, builder));
                 }
                 assigned_workers.push((*wid, acts_and_builders));
@@ -142,15 +171,76 @@ impl ApplicationConfig {
         }
         assignments
     }
-}
 
-#[derive(Deserialize, Debug, Clone, Copy)]
-pub enum SignallingType {
-    DirectMpsc,
-    DirectTcp,
-    DirectUnix,
-    RelayedTcp,
-    RelayedUnix,
+    /// Return an optimized configuration replacing activity chains with composite activities
+    pub fn optimize_composite(&self) -> Self {
+        let chains = find_composites(&self.activity_deps, &self.activity_worker_map());
+        let mut optimized = (*self).clone();
+
+        println!("Preparing composite activities:");
+        for chain in &chains {
+            let numeric: Vec<u64> = chain.iter().map(u64::from).collect();
+            println!("ID {}: {:?}", u64::from(chain[0]), numeric);
+        }
+
+        // Each chain will be represented by a composite activity
+        // whose ID will be the ID of the first activity in the chain
+        // =>
+        // Here, we remove all chain activities from the dependency tree,
+        // except for the first one as a dependant and the last one as a dependency.
+        // In the dependencies, we then replace the last one with the first one.
+
+        let dependencies = &mut optimized.activity_deps;
+        let assignments = &mut optimized.worker_assignments;
+        let composites = &mut optimized.composite_activities;
+
+        // Loop over all chains
+        for chain in chains {
+            assert!(chain.len() >= 2, "Unexpected length of activity chain");
+            let (first_id, chain_wo_first) = chain.split_first().unwrap();
+            let (last_id, chain_wo_last) = chain.split_last().unwrap();
+
+            // Filter and replace IDs in dependency keys (i.e. dependants)
+            // and values (i.e. dependencies) as described above
+            *dependencies = dependencies
+                .iter()
+                .filter(|(id, _)| !chain_wo_first.contains(id))
+                .map(|(id, deps)| {
+                    let adapted_deps: Vec<ActivityId> = deps
+                        .iter()
+                        .filter(|id| !chain_wo_last.contains(id))
+                        .map(|id| if id == last_id { *first_id } else { *id })
+                        .collect();
+                    (*id, adapted_deps)
+                })
+                .map(|(id, deps)| {
+                    if &id == last_id {
+                        (*first_id, deps)
+                    } else {
+                        (id, deps)
+                    }
+                })
+                .collect();
+
+            // Filter and replace IDs in the worker assignments
+            *assignments = assignments
+                .iter()
+                .map(|(w_id, a_ids)| {
+                    let adapted_a_ids: HashSet<ActivityId> = a_ids
+                        .iter()
+                        .filter(|a_id| !chain_wo_first.contains(a_id))
+                        .copied()
+                        .collect();
+                    (*w_id, adapted_a_ids)
+                })
+                .collect();
+
+            // Append the chain to the list of composite activities
+            composites.insert(*first_id, chain);
+        }
+
+        optimized
+    }
 }
 
 fn application_config() -> ApplicationConfig {
@@ -203,7 +293,7 @@ fn application_config() -> ApplicationConfig {
 
     check_consistency(&config, &recorders, &agent_assignments, &activity_deps);
 
-    ApplicationConfig {
+    let app_config = ApplicationConfig {
         signalling: config.signalling,
         primary_agent: AgentId::new(config.primary_agent),
         bind_addrs: (BIND_ADDR, BIND_ADDR2),
@@ -212,6 +302,13 @@ fn application_config() -> ApplicationConfig {
         agent_assignments,
         worker_assignments,
         activity_deps,
+        composite_activities: Default::default(),
+    };
+
+    if config.optimize_composite_activities {
+        app_config.optimize_composite()
+    } else {
+        app_config
     }
 }
 
@@ -298,4 +395,11 @@ struct RawConfig {
     ///
     /// For each activity id, a list of ids of activities it depends on
     activity_deps: HashMap<u64, Vec<u64>>,
+    /// Whether to put straight chains of activities into composite activities
+    ///
+    /// If true, the dependency tree will be checked for chains of activities running in
+    /// the same thread and having no dependencies to other activities. Each identified
+    /// activity chain will be factored into a composite activity in order to save unnecessary
+    /// trigger signals between activities and the scheduler.
+    optimize_composite_activities: bool,
 }

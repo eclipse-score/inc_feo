@@ -1,9 +1,10 @@
 {
-  "signalling": "DirectMpsc",
+  "signalling": "DirectUnix",
   "primary_agent": 1000,
   "recorders": [],
   "agent_assignments": {
-    "1000": [500, 501, 502]
+    "1000": [500, 502],
+    "1001": [501]
   },
   "worker_assignments": {
     "500": [1,  101, 31, 102, 61, 103],
