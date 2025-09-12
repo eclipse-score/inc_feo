@@ -89,3 +89,62 @@ python.toolchain(
     is_default = True,
     python_version = "3.12",
 )
+
+bazel_dep(name = "score_toolchains_gcc", version = "0.4", dev_dependency=True)
+
+###################################################################################################
+# GCC Toolchain
+###################################################################################################
+
+gcc = use_extension("@score_toolchains_gcc//extentions:gcc.bzl", "gcc", dev_dependency=True)
+gcc.toolchain(
+    url = "https://github.com/eclipse-score/toolchains_gcc_packages/releases/download/0.0.1/x86_64-unknown-linux-gnu_gcc12.tar.gz",
+    sha256 = "457f5f20f57528033cb840d708b507050d711ae93e009388847e113b11bf3600",
+    strip_prefix = "x86_64-unknown-linux-gnu",
+)
+
+# TODO to be moved to toolchain. https://github.com/eclipse-score/toolchains_gcc/issues/11
+# gcc.extra_features(
+#     features = [
+#         "minimal_warnings",
+#         "treat_warnings_as_errors",
+#     ],
+# )
+gcc.warning_flags(
+    minimal_warnings = ["-Wall", "-Wno-error=deprecated-declarations"],
+    strict_warnings = ["-Wextra", "-Wpedantic"],
+    treat_warnings_as_errors = ["-Werror"],
+)
+
+use_repo(gcc, "gcc_toolchain", "gcc_toolchain_gcc")
+
+bazel_dep(name = "rules_boost", repo_name = "com_github_nelhage_rules_boost", version = "0.3.3")
+bazel_dep(name = "score-baselibs", version = "1.3.0")
+bazel_dep(name = "communication", version = "0.0.0")
+#
+# Overrides
+#
+archive_override(
+    module_name = "rules_boost",
+    urls = ["https://github.com/nelhage/rules_boost/archive/refs/heads/master.tar.gz"],
+    strip_prefix = "rules_boost-master",
+)
+
+git_override(
+    module_name = "score-baselibs",
+    remote = "https://github.com/eclipse-score/baselibs.git",
+    commit = "abc2b675ed0d5ac6d23981af6543d4a7ae662782",
+)
+
+git_override(
+    module_name = "communication",
+    remote = "https://github.com/eclipse-score/communication.git",
+    commit = "4cd49564c1b7906f0cacd00f2d68dd77ec78a018",
+)
+
+bazel_dep(name = "trlc", version = "0.0.0")
+git_override(
+    module_name = "trlc",
+    remote = "https://github.com/bmw-software-engineering/trlc.git",
+    commit = "650b51a47264a4f232b3341f473527710fc32669",  # trlc-2.0.2 release
+)

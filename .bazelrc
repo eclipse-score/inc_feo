@@ -1,3 +1,13 @@
 build:lint-rust --aspects=@rules_rust//rust:defs.bzl%rust_clippy_aspect
 build:lint-rust --output_groups=+clippy_checks
 build:lint-rust --@rules_rust//:clippy.toml=//:clippy.toml
+
+# S-CORE support
+build --@score-baselibs//score/json:base_library="nlohmann"
+build --@communication//score/mw/com/flags:tracing_library="stub"
+build --@score-baselibs//score/mw/log/flags:KRemote_Logging=false
+build --@score-baselibs//score/memory/shared/flags:use_typedshmd=false
+
+common --extra_toolchains=@gcc_toolchain//:host_gcc_12
+build --incompatible_strict_action_env
+test --test_tag_filters=-manual
