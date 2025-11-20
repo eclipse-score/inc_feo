@@ -57,7 +57,7 @@ rust_analyzer.rust_analyzer_dependencies()
 # C/C++ setup
 bazel_dep(name = "googletest", version = "1.15.0")
 bazel_dep(name = "rules_cc", version = "0.0.17")
-bazel_dep(name = "toolchains_llvm", version = "1.3.0")
+bazel_dep(name = "toolchains_llvm", version = "1.5.0")
 
 # Configure and register the toolchain.
 llvm = use_extension("@toolchains_llvm//toolchain/extensions:llvm.bzl", "llvm")
